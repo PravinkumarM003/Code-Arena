@@ -1,0 +1,16 @@
+{
+  "name": "contest-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live Coding Contest Platform — CodeArena",
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "prisma:push": "cd backend && npx prisma db push",
+    "prisma:studio": "cd backend && npx prisma studio",
+    "set-admin": "node scripts/setAdminClaim.js"
+  }
+}

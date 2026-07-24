@@ -1,0 +1,356 @@
+import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { authMiddleware, adminOnly } from '../middleware/auth';
+import {
+  startContest,
+  pauseContest,
+  resumeContest,
+  endContest,
+  extendContest,
+  getContestTimes,
+  getContestState,
+  setAnnouncement,
+  getDifficultyCurve,
+  setDifficultyCurve,
+  getInfraStats,
+} from '../services/contestState';
+
+// Helper: broadcast contest state change using io attached to req
+function broadcastContestState(io: any, state: string, extra?: Record<string, unknown>) {
+  io.emit('contest:state', { state, ...extra });
+}
+import { assignNextProblem } from '../services/problemAssigner';
+import { getTopN, getAllUsers, updateLeaderboardScore } from '../services/leaderboard';
+import { prisma } from '../config/database';
+import { logger } from '../config/logger';
+import { getSubmissionQueue } from '../workers/grading';
+import { getRedis } from '../config/redis';
+
+const router = Router();
+
+// All admin routes require auth + admin role
+router.use(authMiddleware, adminOnly);
+
+// ─── Contest Control ─────────────────────────────────────────────────────────
+
+/**
+ * POST /admin/start
+ * Starts the contest. Assigns first problem to all connected students.
+ */
+router.post('/start', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = await getContestState();
+    if (state !== 'WAITING') {
+      res.status(400).json({ error: `Cannot start from state: ${state}` });
+      return;
+    }
+
+    const durationMinutes = parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
+    const endTime = await startContest(durationMinutes);
+
+    // Get all registered users and assign their first problems
+    const users = await prisma.user.findMany({
+      where: { isAdmin: false, isDisqualified: false },
+      select: { id: true },
+    });
+
+    logger.info(`Assigning first problems to ${users.length} users...`);
+
+    // Assign problems in batches to avoid DB overload
+    const BATCH = 50;
+    for (let i = 0; i < users.length; i += BATCH) {
+      const batch = users.slice(i, i + BATCH);
+      await Promise.all(batch.map((u) => assignNextProblem(u.id)));
+    }
+
+    // Broadcast to all connected clients
+    const io = (req as any).io;
+    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000 });
+
+    // Also send each user their problem (via session restore event)
+    io.emit('contest:started', { endTime });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.user!.dbUserId,
+        action: 'START_CONTEST',
+        detail: `Contest started for ${users.length} users`,
+      },
+    });
+
+    res.json({ success: true, endTime, usersCount: users.length });
+  } catch (err) {
+    logger.error('Failed to start contest', { error: err });
+    res.status(500).json({ error: 'Failed to start contest' });
+  }
+});
+
+/**
+ * POST /admin/pause
+ */
+router.post('/pause', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = await getContestState();
+    if (state !== 'RUNNING') {
+      res.status(400).json({ error: 'Contest is not running' });
+      return;
+    }
+
+    const { remainingMs } = await pauseContest();
+    const io = (req as any).io;
+    broadcastContestState(io, 'PAUSED', { remainingMs });
+
+    res.json({ success: true, remainingMs });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to pause contest' });
+  }
+});
+
+/**
+ * POST /admin/resume
+ */
+router.post('/resume', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = await getContestState();
+    if (state !== 'PAUSED') {
+      res.status(400).json({ error: 'Contest is not paused' });
+      return;
+    }
+
+    const newEndTime = await resumeContest();
+    const io = (req as any).io;
+    broadcastContestState(io, 'RUNNING', { endTime: newEndTime });
+
+    res.json({ success: true, newEndTime });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to resume contest' });
+  }
+});
+
+/**
+ * POST /admin/stop
+ */
+router.post('/stop', async (req: Request, res: Response): Promise<void> => {
+  try {
+    await endContest();
+    const io = (req as any).io;
+    broadcastContestState(io, 'ENDED');
+
+    await prisma.auditLog.create({
+      data: { adminId: req.user!.dbUserId, action: 'STOP_CONTEST' },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to stop contest' });
+  }
+});
+
+/**
+ * POST /admin/extend
+ * Body: { minutes: number }
+ */
+router.post('/extend', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({ minutes: z.number().int().min(1).max(60) });
+    const { minutes } = schema.parse(req.body);
+
+    const newEndTime = await extendContest(minutes);
+    const io = (req as any).io;
+    io.emit('contest:extended', { newEndTime, addedMinutes: minutes });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.user!.dbUserId,
+        action: 'EXTEND_CONTEST',
+        detail: `Extended by ${minutes} minutes`,
+      },
+    });
+
+    res.json({ success: true, newEndTime });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to extend contest' });
+  }
+});
+
+// ─── Announcements ───────────────────────────────────────────────────────────
+
+router.post('/announce', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({ message: z.string().min(1).max(500) });
+    const { message } = schema.parse(req.body);
+
+    await setAnnouncement(message);
+    const io = (req as any).io;
+    io.emit('contest:announcement', { message, timestamp: Date.now() });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to send announcement' });
+  }
+});
+
+// ─── Manual Overrides ────────────────────────────────────────────────────────
+
+const overrideSchema = z.object({
+  targetUserId: z.string(),
+  action: z.enum(['ADJUST_AP', 'DISQUALIFY', 'REINSTATE']),
+  apDelta: z.number().optional(),
+  reason: z.string().min(1).max(500),
+});
+
+router.post('/override', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { targetUserId, action, apDelta, reason } = overrideSchema.parse(req.body);
+
+    const target = await prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!target) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (action === 'ADJUST_AP' && apDelta !== undefined) {
+      const newAP = Math.max(0, target.ap + apDelta);
+      await prisma.user.update({ where: { id: targetUserId }, data: { ap: newAP } });
+      await updateLeaderboardScore(targetUserId, newAP);
+
+      const io = (req as any).io;
+      io.to(`user:${target.uid}`).emit('ap:adjusted', { newAP, reason });
+      io.emit('leaderboard:update', { userId: targetUserId, newAP });
+    } else if (action === 'DISQUALIFY') {
+      await prisma.user.update({ where: { id: targetUserId }, data: { isDisqualified: true } });
+      const io = (req as any).io;
+      io.to(`user:${target.uid}`).emit('anticheat:locked', { message: `Disqualified: ${reason}` });
+    } else if (action === 'REINSTATE') {
+      await prisma.user.update({ where: { id: targetUserId }, data: { isDisqualified: false } });
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.user!.dbUserId,
+        targetUserId,
+        action,
+        reason,
+      },
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to apply override' });
+  }
+});
+
+// ─── Monitoring ──────────────────────────────────────────────────────────────
+
+router.get('/monitor', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const [users, times, infraStats] = await Promise.all([
+      getAllUsers(),
+      getContestTimes(),
+      getInfraStats(),
+    ]);
+
+    const queue = getSubmissionQueue();
+    const [waiting, active, failed] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getFailedCount(),
+    ]);
+
+    res.json({
+      users,
+      contestState: times.state,
+      remainingMs: times.remainingMs,
+      queueDepth: waiting + active,
+      queueFailed: failed,
+      infraStats,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch monitor data' });
+  }
+});
+
+router.get('/health-detail', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const queue = getSubmissionQueue();
+    const redis = getRedis();
+
+    const [waiting, active, failed, infraStats, redisInfo] = await Promise.all([
+      queue.getWaitingCount(),
+      queue.getActiveCount(),
+      queue.getFailedCount(),
+      getInfraStats(),
+      redis.info('memory'),
+    ]);
+
+    const memMatch = redisInfo.match(/used_memory_human:(\S+)/);
+    const redisMemory = memMatch ? memMatch[1] : 'unknown';
+
+    res.json({
+      queue: { waiting, active, failed },
+      redis: { memory: redisMemory },
+      infra: infraStats,
+      process: {
+        memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        uptime: Math.round(process.uptime()),
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch health details' });
+  }
+});
+
+// ─── Difficulty Curve Config ─────────────────────────────────────────────────
+
+router.get('/difficulty-curve', async (_req, res) => {
+  const curve = await getDifficultyCurve();
+  res.json(curve);
+});
+
+router.put('/difficulty-curve', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({ easyUpTo: z.number().int().min(1), mediumUpTo: z.number().int().min(1) });
+    const curve = schema.parse(req.body);
+    await setDifficultyCurve(curve);
+    res.json({ success: true, curve });
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid curve config' });
+  }
+});
+
+// ─── Export CSV ──────────────────────────────────────────────────────────────
+
+router.get('/export', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const users = await prisma.user.findMany({
+      where: { isAdmin: false },
+      include: {
+        solvedProblems: true,
+        antiCheatEvents: true,
+      },
+      orderBy: { ap: 'desc' },
+    });
+
+    const rows = [
+      'Rank,Name,Email,Roll Number,AP,Problems Solved,Incident Count,Disqualified',
+      ...users.map((u, idx) => [
+        idx + 1,
+        `"${u.name}"`,
+        u.email,
+        u.rollNumber,
+        u.ap.toFixed(2),
+        u.solvedProblems.length,
+        u.antiCheatEvents.length,
+        u.isDisqualified ? 'YES' : 'NO',
+      ].join(',')),
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="results.csv"');
+    res.send(rows);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to export results' });
+  }
+});
+
+export default router;

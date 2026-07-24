@@ -1,0 +1,190 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-brand: 41 82 247;
+    --color-success: 16 185 129;
+    --color-danger: 239 68 68;
+    --color-warning: 245 158 11;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    @apply bg-surface-950 text-white font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-800 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-brand-700;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-brand-600/40 text-white;
+  }
+}
+
+@layer components {
+  /* Glassmorphism card */
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl;
+  }
+
+  /* Neon glow button */
+  .btn-primary {
+    @apply relative inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold
+           bg-gradient-to-r from-brand-500 to-brand-600
+           text-white shadow-lg shadow-brand-500/25
+           hover:from-brand-400 hover:to-brand-500
+           hover:shadow-brand-500/40 hover:scale-105
+           active:scale-95
+           transition-all duration-200 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100;
+  }
+
+  .btn-secondary {
+    @apply relative inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold
+           bg-white/10 border border-white/20 text-white
+           hover:bg-white/20 hover:border-white/30 hover:scale-105
+           active:scale-95
+           transition-all duration-200 ease-out
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-danger {
+    @apply relative inline-flex items-center gap-2 px-6 py-3 rounded-xl font-semibold
+           bg-red-500/20 border border-red-500/30 text-red-400
+           hover:bg-red-500/30 hover:border-red-500/50 hover:scale-105
+           active:scale-95
+           transition-all duration-200;
+  }
+
+  /* Status badges */
+  .badge-easy {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+  .badge-medium {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+  .badge-hard {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .badge-accepted {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-emerald-500/20 text-emerald-400;
+  }
+  .badge-wrong {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-red-500/20 text-red-400;
+  }
+  .badge-partial {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-amber-500/20 text-amber-400;
+  }
+  .badge-judging {
+    @apply text-xs font-semibold px-2 py-0.5 rounded-full
+           bg-blue-500/20 text-blue-400 animate-pulse;
+  }
+
+  /* Rank medal */
+  .rank-1 { @apply text-yellow-400 font-black text-lg; }
+  .rank-2 { @apply text-slate-300 font-black text-lg; }
+  .rank-3 { @apply text-amber-600 font-black text-lg; }
+
+  /* Input */
+  .input {
+    @apply w-full px-4 py-3 rounded-xl
+           bg-white/5 border border-white/10
+           text-white placeholder:text-white/30
+           focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50
+           transition-all duration-200;
+  }
+
+  /* AP counter glow */
+  .ap-glow {
+    @apply text-brand-400 font-black;
+    text-shadow: 0 0 20px rgba(41, 82, 247, 0.5);
+  }
+
+  /* Floating particles background */
+  .particles-bg {
+    background:
+      radial-gradient(ellipse at 10% 50%, rgba(41, 82, 247, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse at 90% 20%, rgba(76, 121, 251, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse at 50% 100%, rgba(20, 35, 208, 0.05) 0%, transparent 60%),
+      #0a0f1a;
+  }
+
+  /* Contest state indicator */
+  .state-running {
+    @apply flex items-center gap-2 text-emerald-400;
+  }
+  .state-paused {
+    @apply flex items-center gap-2 text-amber-400;
+  }
+  .state-waiting {
+    @apply flex items-center gap-2 text-blue-400;
+  }
+  .state-ended {
+    @apply flex items-center gap-2 text-red-400;
+  }
+
+  /* Fullscreen overlay for pause */
+  .pause-overlay {
+    @apply fixed inset-0 z-50 flex items-center justify-center
+           bg-black/80 backdrop-blur-lg;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-gradient-to-r from-brand-300 to-blue-300 bg-clip-text text-transparent;
+  }
+
+  .border-gradient {
+    border-image: linear-gradient(to right, theme('colors.brand.500'), theme('colors.blue.500')) 1;
+  }
+}
+
+/* Monaco Editor dark theme overrides */
+.monaco-editor,
+.monaco-editor-background,
+.monaco-editor .margin {
+  background-color: #0d1117 !important;
+}
+
+/* Announcement banner */
+@keyframes slide-down {
+  from { transform: translateY(-100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.announcement-banner {
+  animation: slide-down 0.3s ease-out;
+}

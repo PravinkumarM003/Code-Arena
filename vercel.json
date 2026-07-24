@@ -1,0 +1,25 @@
+{
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "cd frontend && npm install",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
+  "env": {
+    "VITE_FIREBASE_API_KEY": "@vite-firebase-api-key",
+    "VITE_FIREBASE_AUTH_DOMAIN": "@vite-firebase-auth-domain",
+    "VITE_FIREBASE_PROJECT_ID": "@vite-firebase-project-id",
+    "VITE_FIREBASE_APP_ID": "@vite-firebase-app-id",
+    "VITE_COLLEGE_EMAIL_DOMAIN": "@vite-college-email-domain",
+    "VITE_BACKEND_URL": "@vite-backend-url"
+  }
+}

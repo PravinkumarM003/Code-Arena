@@ -1,0 +1,235 @@
+// This is your Prisma schema file for TiDB Serverless (MySQL-compatible)
+// TiDB requires: provider = "mysql" + ssl in DATABASE_URL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  // TiDB Serverless uses TLS; pass ssl params in DATABASE_URL query string
+}
+
+// ─── Users ────────────────────────────────────────────────────────────────────
+
+model User {
+  id              String   @id @default(cuid())
+  uid             String   @unique // Firebase UID
+  email           String   @unique
+  name            String
+  rollNumber      String   @default("")
+  isAdmin         Boolean  @default(false)
+  isDisqualified  Boolean  @default(false)
+  ap              Float    @default(0)
+  rank            Int?
+
+  // Session tracking
+  sessionToken    String?  @db.VarChar(512)
+  lastSeenAt      DateTime @default(now())
+
+  // Independent problem progression
+  currentProblemId  String?
+  problemAssignedAt DateTime?
+  problemsAttempted Int      @default(0) // total attempted (for difficulty curve)
+
+  solvedProblems    SolvedProblem[]
+  skippedProblems   SkippedProblem[]
+  submissions       Submission[]
+  antiCheatEvents   AntiCheatEvent[]
+  auditLogs         AuditLog[]       @relation("AuditTarget")
+  performedAudits   AuditLog[]       @relation("AuditAdmin")
+  similarityFlags   SimilarityFlag[] @relation("SimilarityUser")
+  similarityPairs   SimilarityFlag[] @relation("SimilarityPair")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ap])
+  @@index([uid])
+}
+
+model SolvedProblem {
+  id        String  @id @default(cuid())
+  userId    String
+  problemId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem @relation(fields: [problemId], references: [id])
+  solvedAt  DateTime @default(now())
+
+  @@unique([userId, problemId])
+  @@index([userId])
+}
+
+model SkippedProblem {
+  id        String  @id @default(cuid())
+  userId    String
+  problemId String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem @relation(fields: [problemId], references: [id])
+  skippedAt DateTime @default(now())
+
+  @@unique([userId, problemId])
+  @@index([userId])
+}
+
+// ─── Problems ─────────────────────────────────────────────────────────────────
+
+model Problem {
+  id          String      @id @default(cuid())
+  title       String
+  statement   String      @db.Text
+  difficulty  Difficulty  @default(EASY)
+  timeBudget  Int         @default(30) // minutes allowed per problem
+  isActive    Boolean     @default(true)
+  orderIndex  Int         @default(0) // for ordering in the bank
+
+  // Starter code per language stored as JSON
+  starterCode Json        @default("{}")
+
+  testCases   TestCase[]
+  submissions Submission[]
+  solvedBy    SolvedProblem[]
+  skippedBy   SkippedProblem[]
+  similarities SimilarityFlag[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([difficulty, isActive])
+}
+
+model TestCase {
+  id             String   @id @default(cuid())
+  problemId      String
+  problem        Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  input          String   @db.Text
+  expectedOutput String   @db.Text
+  isHidden       Boolean  @default(false) // hidden test cases not shown to student
+  points         Float    @default(1.0)
+  orderIndex     Int      @default(0)
+
+  @@index([problemId])
+}
+
+// ─── Submissions ──────────────────────────────────────────────────────────────
+
+model Submission {
+  id              String           @id @default(cuid())
+  userId          String
+  problemId       String
+  user            User             @relation(fields: [userId], references: [id])
+  problem         Problem          @relation(fields: [problemId], references: [id])
+
+  code            String           @db.Text
+  language        Language
+  status          SubmissionStatus @default(PENDING)
+
+  // Grading results
+  testPassRatio   Float?           // 0.0 – 1.0
+  aiScore         Float?           // 0.0 – 1.0 (Claude quality score)
+  apAwarded       Float            @default(0)
+  timeTakenSeconds Int?            // seconds from problemAssignedAt to submit
+
+  // Piston runtime details
+  pistonOutput    Json?
+  errorMessage    String?          @db.Text
+
+  // BullMQ job tracking
+  jobId           String?
+
+  submittedAt DateTime @default(now())
+  gradedAt    DateTime?
+
+  @@index([userId])
+  @@index([problemId])
+  @@index([status])
+}
+
+// ─── Anti-Cheat ───────────────────────────────────────────────────────────────
+
+model AntiCheatEvent {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id])
+  eventType AntiCheatType
+  detail    String?
+  penalty   Float          @default(0)
+  timestamp DateTime       @default(now())
+
+  @@index([userId])
+  @@index([timestamp])
+}
+
+// ─── Admin Audit Logs ─────────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  adminId      String
+  admin        User     @relation("AuditAdmin", fields: [adminId], references: [id])
+  targetUserId String?
+  target       User?    @relation("AuditTarget", fields: [targetUserId], references: [id])
+  action       String   // e.g. "DISQUALIFY", "ADJUST_AP", "START_CONTEST"
+  detail       String?  @db.Text
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  @@index([adminId])
+  @@index([createdAt])
+}
+
+// ─── Post-Contest Plagiarism ──────────────────────────────────────────────────
+
+model SimilarityFlag {
+  id          String   @id @default(cuid())
+  problemId   String
+  problem     Problem  @relation(fields: [problemId], references: [id])
+  userId1     String
+  user1       User     @relation("SimilarityUser", fields: [userId1], references: [id])
+  userId2     String
+  user2       User     @relation("SimilarityPair", fields: [userId2], references: [id])
+  similarity  Float    // 0.0 – 1.0
+  flagged     Boolean  @default(true)
+  reviewedBy  String?
+  createdAt   DateTime @default(now())
+
+  @@unique([problemId, userId1, userId2])
+  @@index([problemId])
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum Language {
+  PYTHON
+  JAVA
+  CPP
+  JAVASCRIPT
+}
+
+enum SubmissionStatus {
+  PENDING
+  JUDGING
+  ACCEPTED
+  PARTIAL
+  WRONG_ANSWER
+  TIME_LIMIT
+  RUNTIME_ERROR
+  ERROR
+}
+
+enum AntiCheatType {
+  TAB_SWITCH
+  FULLSCREEN_EXIT
+  RIGHT_CLICK
+  COPY_PASTE
+  DEVTOOLS_OPEN
+  VIEW_SOURCE
+  REFRESH_ATTEMPT
+  DISCONNECT
+}
