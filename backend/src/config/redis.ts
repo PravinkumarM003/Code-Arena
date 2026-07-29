@@ -6,8 +6,17 @@ let redisClient: Redis | null = null;
 export function getRedis(): Redis {
   if (redisClient) return redisClient;
 
-  const url = process.env.REDIS_URL || 'redis://localhost:6379';
-  const isTls = url.startsWith('rediss://');
+  let url = process.env.REDIS_URL || 'redis://localhost:6379';
+
+  // Auto-fix if CLI command string was accidentally pasted
+  if (url.includes('redis-cli')) {
+    const match = url.match(/(rediss?:\/\/[^\s"]+)/);
+    if (match) {
+      url = match[1];
+    }
+  }
+
+  const isTls = url.startsWith('rediss://') || url.includes('.upstash.io');
 
   redisClient = new Redis(url, {
     maxRetriesPerRequest: 3,
