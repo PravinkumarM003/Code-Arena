@@ -7,6 +7,7 @@ export function getRedis(): Redis {
   if (redisClient) return redisClient;
 
   const url = process.env.REDIS_URL || 'redis://localhost:6379';
+  const isTls = url.startsWith('rediss://');
 
   redisClient = new Redis(url, {
     maxRetriesPerRequest: 3,
@@ -16,10 +17,11 @@ export function getRedis(): Redis {
     },
     enableReadyCheck: false,
     lazyConnect: false,
+    ...(isTls ? { tls: { rejectUnauthorized: false } } : {}),
   });
 
   redisClient.on('connect', () => logger.info('Redis connected'));
-  redisClient.on('error', (err) => logger.error('Redis error', { error: err.message }));
+  redisClient.on('error', (err) => logger.error('Redis error', { error: err?.message || String(err) }));
   redisClient.on('reconnecting', () => logger.warn('Redis reconnecting...'));
 
   return redisClient;
