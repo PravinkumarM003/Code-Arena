@@ -144,8 +144,11 @@ async function start() {
       logger.info(`Environment: ${process.env.NODE_ENV}`);
       logger.info(`Frontend URL: ${FRONTEND_URL}`);
     });
-  } catch (err) {
-    logger.error('Failed to start server', { error: err });
+  } catch (err: any) {
+    logger.error('Failed to start server', {
+      error: err?.message || String(err),
+      stack: err?.stack,
+    });
     process.exit(1);
   }
 }

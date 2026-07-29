@@ -19,7 +19,7 @@ export function getRedis(): Redis {
   const isTls = url.startsWith('rediss://') || url.includes('.upstash.io');
 
   redisClient = new Redis(url, {
-    maxRetriesPerRequest: 3,
+    maxRetriesPerRequest: null,
     retryStrategy(times) {
       const delay = Math.min(times * 100, 3000);
       return delay;
