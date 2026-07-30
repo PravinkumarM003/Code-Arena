@@ -16,6 +16,7 @@ import { startDraftFlusher, flushDirtyDrafts } from './services/draftSaver';
 import { getContestTimes, endContest } from './services/contestState';
 
 import adminRouter from './routes/admin';
+import authRouter from './routes/auth';
 import problemsRouter from './routes/problems';
 import submissionsRouter from './routes/submissions';
 import leaderboardRouter from './routes/leaderboard';
@@ -81,6 +82,7 @@ setupSocketHandlers(io);
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
 
+app.use('/auth', authRouter);
 app.use('/admin', adminRouter);
 app.use('/problems', problemsRouter);
 app.use('/submissions', submissionsRouter);

@@ -61,6 +61,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Register/update user in TiDB so Socket.IO can authenticate them
+      const token = await result.user.getIdToken();
+      const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
+      await fetch(`${BACKEND_URL}/auth/login`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
       toast.success(`Welcome, ${result.user.displayName}!`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Sign in failed';
