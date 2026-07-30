@@ -34,17 +34,28 @@ router.post('/login', async (req: Request, res: Response) => {
     // Roll number is the local part of the email (e.g. "21ad001" from "21ad001@bitsathy.ac.in")
     const rollNumber = email.split('@')[0].toUpperCase();
 
+    // Auto-promote configured admin email
+    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
+    const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
+
     // Upsert: create user if first login, update lastSeenAt on subsequent logins
     const user = await prisma.user.upsert({
       where: { uid: decoded.uid },
-      update: { lastSeenAt: new Date(), name },
+      update: { lastSeenAt: new Date(), name, ...(isAdminEmail ? { isAdmin: true } : {}) },
       create: {
         uid: decoded.uid,
         email,
         name,
         rollNumber,
+        isAdmin: isAdminEmail,
       },
     });
+
+    // Set Firebase custom claim so the frontend token reflects admin status
+    if (isAdminEmail && decoded.admin !== true) {
+      await admin.auth().setCustomUserClaims(decoded.uid, { admin: true });
+      logger.info('Admin custom claim set', { email });
+    }
 
     logger.info('User logged in', { uid: decoded.uid, email, isAdmin: user.isAdmin });
 
