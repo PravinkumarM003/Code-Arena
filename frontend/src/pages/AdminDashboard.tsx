@@ -691,37 +691,99 @@ export default function AdminDashboard() {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-white/40 mb-2">Test Cases</label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-white/40">Test Cases</label>
+                      <span className="text-xs text-white/25">Input supports multiple lines · Output can also be multi-line</span>
+                    </div>
                     {problemForm.testCases.map((tc, idx) => (
-                      <div key={idx} className="grid grid-cols-2 gap-3 mb-3 p-3 bg-white/5 rounded-xl">
-                        <div>
-                          <label className="block text-xs text-white/30 mb-1">Input</label>
-                          <textarea className="input h-20 text-xs font-mono resize-none" value={tc.input} onChange={(e) => {
-                            const tcs = [...problemForm.testCases];
-                            tcs[idx] = { ...tcs[idx], input: e.target.value };
-                            setProblemForm(p => ({ ...p, testCases: tcs }));
-                          }} />
+                      <div key={idx} className="mb-3 p-3 bg-white/5 rounded-xl border border-white/5">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-white/40">
+                            {tc.isHidden ? '🔒 Hidden' : '👁 Visible'} Test Case {idx + 1}
+                          </span>
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={tc.isHidden}
+                                onChange={(e) => {
+                                  const tcs = [...problemForm.testCases];
+                                  tcs[idx] = { ...tcs[idx], isHidden: e.target.checked };
+                                  setProblemForm(p => ({ ...p, testCases: tcs }));
+                                }}
+                                className="accent-brand-500"
+                              />
+                              Hidden
+                            </label>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-white/30">pts:</span>
+                              <input
+                                type="number"
+                                min={0.1} step={0.5}
+                                value={tc.points}
+                                onChange={(e) => {
+                                  const tcs = [...problemForm.testCases];
+                                  tcs[idx] = { ...tcs[idx], points: parseFloat(e.target.value) || 1 };
+                                  setProblemForm(p => ({ ...p, testCases: tcs }));
+                                }}
+                                className="input py-0.5 px-2 w-16 text-xs text-center"
+                              />
+                            </div>
+                            {problemForm.testCases.length > 1 && (
+                              <button
+                                onClick={() => {
+                                  setProblemForm(p => ({
+                                    ...p,
+                                    testCases: p.testCases.filter((_, i) => i !== idx),
+                                  }));
+                                }}
+                                className="text-red-400/60 hover:text-red-400 transition-colors text-xs px-1"
+                                title="Remove this test case"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-xs text-white/30 mb-1">Expected Output</label>
-                          <textarea className="input h-20 text-xs font-mono resize-none" value={tc.expectedOutput} onChange={(e) => {
-                            const tcs = [...problemForm.testCases];
-                            tcs[idx] = { ...tcs[idx], expectedOutput: e.target.value };
-                            setProblemForm(p => ({ ...p, testCases: tcs }));
-                          }} />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-white/30 mb-1">
+                              Input <span className="text-white/15">(multi-line ok)</span>
+                            </label>
+                            <textarea
+                              className="input h-28 text-xs font-mono resize-y min-h-16"
+                              value={tc.input}
+                              placeholder={`e.g.\n5\n3 1 4 1 5`}
+                              onChange={(e) => {
+                                const tcs = [...problemForm.testCases];
+                                tcs[idx] = { ...tcs[idx], input: e.target.value };
+                                setProblemForm(p => ({ ...p, testCases: tcs }));
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-white/30 mb-1">
+                              Expected Output <span className="text-white/15">(multi-line ok)</span>
+                            </label>
+                            <textarea
+                              className="input h-28 text-xs font-mono resize-y min-h-16"
+                              value={tc.expectedOutput}
+                              placeholder={`e.g.\n1 1 3 4 5`}
+                              onChange={(e) => {
+                                const tcs = [...problemForm.testCases];
+                                tcs[idx] = { ...tcs[idx], expectedOutput: e.target.value };
+                                setProblemForm(p => ({ ...p, testCases: tcs }));
+                              }}
+                            />
+                          </div>
                         </div>
-                        <label className="flex items-center gap-2 text-sm text-white/50 col-span-2">
-                          <input type="checkbox" checked={tc.isHidden} onChange={(e) => {
-                            const tcs = [...problemForm.testCases];
-                            tcs[idx] = { ...tcs[idx], isHidden: e.target.checked };
-                            setProblemForm(p => ({ ...p, testCases: tcs }));
-                          }} />
-                          Hidden test case (student can't see input/output)
-                        </label>
                       </div>
                     ))}
                     <button
-                      onClick={() => setProblemForm(p => ({ ...p, testCases: [...p.testCases, { input: '', expectedOutput: '', isHidden: false, points: 1 }] }))}
+                      onClick={() => setProblemForm(p => ({
+                        ...p,
+                        testCases: [...p.testCases, { input: '', expectedOutput: '', isHidden: false, points: 1 }],
+                      }))}
                       className="btn-secondary text-xs py-1.5 px-3"
                     >
                       <Plus className="w-3.5 h-3.5" />

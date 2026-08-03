@@ -168,6 +168,95 @@ router.post('/draft', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ─── Run Code (live terminal) ─────────────────────────────────────────────────
+
+const runSchema = z.object({
+  code: z.string().min(1).max(100_000),
+  language: z.enum(['PYTHON', 'JAVA', 'CPP', 'JAVASCRIPT']),
+  stdin: z.string().max(10_000).default(''), // user-supplied input (multi-line ok)
+});
+
+/**
+ * POST /submissions/run
+ * Executes code with user-provided stdin via Piston. No submission created.
+ * Rate-limited: 1 run per 5 seconds per user.
+ * Returns stdout, stderr, compile errors, runtime ms.
+ */
+router.post('/run', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const redis = getRedis();
+    const runLimitKey = `run:cooldown:${req.user!.uid}`;
+    const onCooldown = await redis.get(runLimitKey);
+    if (onCooldown) {
+      res.status(429).json({ error: 'Please wait a moment before running again.' });
+      return;
+    }
+
+    const { code, language, stdin } = runSchema.parse(req.body);
+
+    // Piston language map
+    const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
+      PYTHON: { language: 'python', version: '3.10.0' },
+      JAVA: { language: 'java', version: '15.0.2' },
+      CPP: { language: 'c++', version: '10.2.0' },
+      JAVASCRIPT: { language: 'javascript', version: '18.15.0' },
+    };
+
+    const langConfig = LANGUAGE_MAP[language];
+    if (!langConfig) {
+      res.status(400).json({ error: `Unsupported language: ${language}` });
+      return;
+    }
+
+    // Set cooldown before executing so spammers are blocked
+    await redis.setex(runLimitKey, 5, '1');
+
+    const axios = (await import('axios')).default;
+    const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston';
+    const startTime = Date.now();
+
+    const response = await axios.post(
+      `${pistonUrl}/execute`,
+      {
+        language: langConfig.language,
+        version: langConfig.version,
+        files: [{ name: 'main', content: code }],
+        stdin,
+        run_timeout: 10_000,   // 10s — generous for manual runs
+        compile_timeout: 20_000,
+        run_memory_limit: 128 * 1024 * 1024,
+      },
+      { timeout: 30_000 }
+    );
+
+    const runtimeMs = Date.now() - startTime;
+    const result = response.data;
+
+    // Compile error
+    if (result.compile?.code !== 0 && result.compile?.stderr) {
+      res.json({
+        stdout: '',
+        stderr: '',
+        compileError: result.compile.stderr,
+        runtimeMs,
+        exitCode: result.compile.code ?? 1,
+      });
+      return;
+    }
+
+    res.json({
+      stdout: result.run?.stdout ?? '',
+      stderr: result.run?.stderr ?? '',
+      compileError: null,
+      runtimeMs,
+      exitCode: result.run?.code ?? 0,
+    });
+  } catch (err: any) {
+    logger.error('Run code error', { error: err?.message });
+    res.status(500).json({ error: 'Code execution failed. Please try again.' });
+  }
+});
+
 // ─── Get Submission History (student's own) ──────────────────────────────────
 
 router.get('/history', async (req: Request, res: Response): Promise<void> => {
@@ -196,3 +285,4 @@ router.get('/history', async (req: Request, res: Response): Promise<void> => {
 });
 
 export default router;
+

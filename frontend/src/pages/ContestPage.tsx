@@ -3,7 +3,7 @@ import { Editor } from '@monaco-editor/react';
 import {
   Clock, Send, SkipForward, ChevronRight, CheckCircle2,
   XCircle, AlertCircle, Loader2, Cpu, Star, Code2, LogOut,
-  Trophy, Zap
+  Trophy, Zap, Play, ChevronDown, ChevronUp, Terminal
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useContest } from '../contexts/ContestContext';
@@ -41,6 +41,15 @@ export default function ContestPage() {
   const [skipLockoutMs, setSkipLockoutMs] = useState(0);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<any>(null);
+
+  // Run panel state
+  const [showRunPanel, setShowRunPanel] = useState(false);
+  const [stdinText, setStdinText] = useState('');
+  const [runResult, setRunResult] = useState<{
+    stdout: string; stderr: string; compileError: string | null;
+    runtimeMs: number; exitCode: number;
+  } | null>(null);
+  const [isRunning, setIsRunning] = useState(false);
 
   // Enable anti-cheat monitoring
   useAntiCheat(contestState === 'RUNNING' && !isLocked);
@@ -132,6 +141,25 @@ export default function ContestPage() {
       toast('Problem skipped. Next problem loading...', { icon: '⏭' });
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Skip failed');
+    }
+  };
+
+  const handleRun = async () => {
+    if (!code.trim() || isRunning) return;
+    setIsRunning(true);
+    setRunResult(null);
+    try {
+      const res = await api.post('/submissions/run', {
+        code,
+        language: selectedLang,
+        stdin: stdinText,
+      });
+      setRunResult(res.data);
+    } catch (err: any) {
+      const msg = err.response?.data?.error || 'Execution failed';
+      setRunResult({ stdout: '', stderr: msg, compileError: null, runtimeMs: 0, exitCode: 1 });
+    } finally {
+      setIsRunning(false);
     }
   };
 
@@ -368,6 +396,19 @@ export default function ContestPage() {
               {/* Auto-save indicator */}
               <span className="text-white/20 text-xs">Auto-saves every 7s</span>
 
+              {/* Run button */}
+              <button
+                onClick={() => { setShowRunPanel((v) => !v); setRunResult(null); }}
+                className={`btn-secondary text-xs py-1.5 px-3 gap-1 ${
+                  showRunPanel ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' : ''
+                }`}
+                title="Run your code with custom input"
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                Run
+                {showRunPanel ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+              </button>
+
               {/* Skip button */}
               <button
                 onClick={handleSkip}
@@ -401,7 +442,7 @@ export default function ContestPage() {
           </div>
 
           {/* Monaco Editor */}
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1 overflow-hidden" style={{ minHeight: 0 }}>
             <Editor
               height="100%"
               language={LANGUAGES.find((l) => l.id === selectedLang)?.monaco || 'python'}
@@ -425,6 +466,87 @@ export default function ContestPage() {
               }}
             />
           </div>
+
+          {/* ── Run Panel ─────────────────────────────────────────────────── */}
+          {showRunPanel && (
+            <div className="flex-shrink-0 border-t border-white/5 bg-surface-900/80" style={{ height: 220 }}>
+              <div className="flex h-full">
+                {/* Left: stdin input */}
+                <div className="flex flex-col w-1/2 border-r border-white/5">
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-white/5">
+                    <span className="text-xs text-white/40 font-mono">stdin (input)</span>
+                    <button
+                      onClick={handleRun}
+                      disabled={isRunning || !code.trim()}
+                      className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold
+                        bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30
+                        border border-emerald-500/20 transition-all disabled:opacity-40"
+                    >
+                      {isRunning
+                        ? <><Loader2 className="w-3 h-3 animate-spin" />Running...</>
+                        : <><Play className="w-3 h-3" />Run Code</>}
+                    </button>
+                  </div>
+                  <textarea
+                    value={stdinText}
+                    onChange={(e) => setStdinText(e.target.value)}
+                    placeholder={`Enter input here...\n\nMultiple lines = multiple inputs\nE.g.:\n5\n3 1 4 1 5`}
+                    className="flex-1 bg-transparent text-xs font-mono text-white/70 resize-none
+                      px-3 py-2 outline-none placeholder:text-white/15"
+                    spellCheck={false}
+                  />
+                </div>
+
+                {/* Right: output terminal */}
+                <div className="flex flex-col w-1/2">
+                  <div className="flex items-center gap-2 px-3 py-1.5 border-b border-white/5">
+                    <Terminal className="w-3 h-3 text-white/30" />
+                    <span className="text-xs text-white/40 font-mono">output</span>
+                    {runResult && (
+                      <span className={`ml-auto text-xs font-mono ${
+                        runResult.exitCode === 0 ? 'text-emerald-400' : 'text-red-400'
+                      }`}>
+                        exit {runResult.exitCode} · {runResult.runtimeMs}ms
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 overflow-auto px-3 py-2">
+                    {!runResult && !isRunning && (
+                      <p className="text-white/15 text-xs font-mono">Press Run to execute your code</p>
+                    )}
+                    {isRunning && (
+                      <div className="flex items-center gap-2 text-white/40 text-xs">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Executing...
+                      </div>
+                    )}
+                    {runResult && !isRunning && (
+                      <>
+                        {runResult.compileError && (
+                          <pre className="text-red-400 text-xs font-mono whitespace-pre-wrap break-words">
+                            {'[Compile Error]\n'}{runResult.compileError}
+                          </pre>
+                        )}
+                        {runResult.stdout && (
+                          <pre className="text-emerald-300 text-xs font-mono whitespace-pre-wrap break-words">
+                            {runResult.stdout}
+                          </pre>
+                        )}
+                        {runResult.stderr && (
+                          <pre className="text-red-400/80 text-xs font-mono whitespace-pre-wrap break-words mt-1">
+                            {'[stderr]\n'}{runResult.stderr}
+                          </pre>
+                        )}
+                        {!runResult.compileError && !runResult.stdout && !runResult.stderr && (
+                          <p className="text-white/30 text-xs font-mono">(no output)</p>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
