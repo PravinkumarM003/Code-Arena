@@ -8,13 +8,14 @@ import {
   getContestTimes,
   incrementConnected,
   decrementConnected,
-  getConnectedCount,
+  syncConnectedCount,
   getAnnouncement,
   updateInfraStats,
+  getCurrentEventId,
 } from '../services/contestState';
 import { getCurrentProblem } from '../services/problemAssigner';
 import { getDraftFromRedis } from '../services/draftSaver';
-import { getUserAP, getUserRank, registerUser, updateLeaderboardScore } from '../services/leaderboard';
+import { getUserAP, getUserRank, registerUser, adjustLeaderboardScore } from '../services/leaderboard';
 
 const COLLEGE_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'bitsathy.ac.in';
 
@@ -83,23 +84,26 @@ export function setupSocketHandlers(io: SocketServer): void {
     // Join user-specific room (for targeted events)
     socket.join(`user:${uid}`);
 
-    // Join admin room
+    // Admins join admin room; students join contestants room
     if (isAdmin) {
       socket.join('admins');
       logger.info('Admin connected', { uid });
+    } else {
+      socket.join('contestants');
     }
 
     // Register on leaderboard
     await registerUser(dbUserId, name, rollNumber);
 
-    // Update connection counter
-    const connected = await incrementConnected();
-    await updateInfraStats({ activeConnections: connected });
+    // Sync connected count from actual socket room size (drift-proof)
+    const contestantCount = io.sockets.adapter.rooms.get('contestants')?.size || 0;
+    await syncConnectedCount(contestantCount);
+    await updateInfraStats({ activeConnections: contestantCount });
 
     // Broadcast updated connection count to WAITING screen
-    io.emit('contest:connected', { count: connected });
+    io.emit('contest:connected', { count: contestantCount });
 
-    logger.info('Socket connected', { uid, name, connected });
+    logger.info('Socket connected', { uid, name, connected: contestantCount });
 
     // ── Send current state to newly connected client ──────────────────────
 
@@ -154,12 +158,12 @@ export function setupSocketHandlers(io: SocketServer): void {
         if (count === 1) {
           socket.emit('anticheat:warning', { message: 'Warning: Suspicious activity detected. This is being monitored.' });
         } else if (count === 2) {
-          // Apply AP penalty (–10 points)
-          const currentAP = await getUserAP(dbUserId);
-          const newAP = Math.max(0, currentAP - 10);
-          await updateLeaderboardScore(dbUserId, newAP);
-          await prisma.user.update({ where: { id: dbUserId }, data: { ap: newAP } });
-          socket.emit('anticheat:penalty', { message: 'AP penalty applied for repeated violations.', newAP });
+          // Apply AP penalty (–10 points) on the current event
+          const eventId = await getCurrentEventId();
+          await adjustLeaderboardScore(dbUserId, -10, eventId || undefined);
+          await prisma.user.update({ where: { id: dbUserId }, data: { ap: { decrement: 10 } } });
+          const penalizedAP = await getUserAP(dbUserId, eventId);
+          socket.emit('anticheat:penalty', { message: 'AP penalty applied for repeated violations.', newAP: penalizedAP });
         } else if (count >= 3) {
           // Auto-submit current problem and lock account
           socket.emit('anticheat:locked', { message: 'Account locked due to multiple violations. Current problem auto-submitted.' });
@@ -183,10 +187,12 @@ export function setupSocketHandlers(io: SocketServer): void {
     // ── Disconnect ────────────────────────────────────────────────────────
 
     socket.on('disconnect', async (reason) => {
-      const count = await decrementConnected();
-      await updateInfraStats({ activeConnections: count });
-      io.emit('contest:connected', { count });
-      logger.info('Socket disconnected', { uid, reason, connected: count });
+      // Sync from actual room size (accurate even after crash/restart)
+      const contestantCount = io.sockets.adapter.rooms.get('contestants')?.size || 0;
+      await syncConnectedCount(contestantCount);
+      await updateInfraStats({ activeConnections: contestantCount });
+      io.emit('contest:connected', { count: contestantCount });
+      logger.info('Socket disconnected', { uid, reason, connected: contestantCount });
     });
   });
 }
@@ -203,10 +209,15 @@ async function handleSessionRestore(
   remainingMs: number
 ): Promise<void> {
   try {
-    const [problem, ap, rank] = await Promise.all([
+    const [problem, times, eventId] = await Promise.all([
       getCurrentProblem(dbUserId),
-      getUserAP(dbUserId),
-      getUserRank(dbUserId),
+      getContestTimes(),
+      getCurrentEventId(),
+    ]);
+
+    const [ap, rank] = await Promise.all([
+      getUserAP(dbUserId, eventId),
+      getUserRank(dbUserId, eventId),
     ]);
 
     // Get code draft if there is a current problem
@@ -218,10 +229,12 @@ async function handleSessionRestore(
     socket.emit('session:restored', {
       state,
       remainingMs,
+      endTime: times.endTime,   // required for client-side countdown timer
       problem,
       draft,
       ap,
       rank,
+      eventId,
     });
   } catch (err) {
     logger.error('Session restore error', { uid, error: err });

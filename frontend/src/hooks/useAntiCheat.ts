@@ -77,8 +77,12 @@ export function useAntiCheat(active: boolean) {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Block Ctrl+C / Ctrl+V (copy/paste)
+      // Block Ctrl+C / Ctrl+V (copy/paste) ONLY when NOT inside Monaco editor
+      // Students need copy/paste within the editor to refactor their own code
       if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'v')) {
+        const target = e.target as HTMLElement;
+        const isInsideMonaco = target.closest('.monaco-editor') !== null;
+        if (isInsideMonaco) return; // allow normal editor copy/paste
         e.preventDefault();
         reportEvent('COPY_PASTE', e.key === 'c' ? 'COPY' : 'PASTE');
         return;

@@ -1,8 +1,23 @@
 import { Code2, Loader2, LogIn } from 'lucide-react';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
-  const { signInWithGoogle, loading } = useAuth();
+  const { signInWithGoogle, loading, user } = useAuth();
+
+  // Already logged in → go straight to the app (no flicker on login page)
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Auth state still resolving → show spinner to avoid flicker
+  if (loading) {
+    return (
+      <div className="min-h-screen particles-bg flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-brand-400 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen particles-bg flex items-center justify-center p-4">

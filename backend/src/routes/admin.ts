@@ -13,14 +13,19 @@ import {
   getDifficultyCurve,
   setDifficultyCurve,
   getInfraStats,
+  createEvent,
+  hardReset,
+  softReset,
+  getCurrentEventId,
+  getEventHistory,
 } from '../services/contestState';
 
 // Helper: broadcast contest state change using io attached to req
 function broadcastContestState(io: any, state: string, extra?: Record<string, unknown>) {
   io.emit('contest:state', { state, ...extra });
 }
-import { assignNextProblem } from '../services/problemAssigner';
-import { getTopN, getAllUsers, updateLeaderboardScore } from '../services/leaderboard';
+import { assignNextProblem, resetUserProgress } from '../services/problemAssigner';
+import { getTopN, getAllUsers, adjustLeaderboardScore, registerUserForEvent } from '../services/leaderboard';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import { getSubmissionQueue } from '../workers/grading';
@@ -48,6 +53,10 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
     const durationMinutes = parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
     const endTime = await startContest(durationMinutes);
 
+    // Create an Event record in the DB for this contest run
+    const { name: eventName } = req.body as { name?: string };
+    const eventId = await createEvent(durationMinutes, eventName);
+
     // Get all registered users and assign their first problems
     const users = await prisma.user.findMany({
       where: { isAdmin: false, isDisqualified: false },
@@ -56,29 +65,30 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
 
     logger.info(`Assigning first problems to ${users.length} users...`);
 
-    // Assign problems in batches to avoid DB overload
+    // Register all users in this event's leaderboard + assign problems in batches
     const BATCH = 50;
     for (let i = 0; i < users.length; i += BATCH) {
       const batch = users.slice(i, i + BATCH);
-      await Promise.all(batch.map((u) => assignNextProblem(u.id)));
+      await Promise.all([
+        ...batch.map((u) => assignNextProblem(u.id)),
+        ...batch.map((u) => registerUserForEvent(u.id, eventId)),
+      ]);
     }
 
     // Broadcast to all connected clients
     const io = (req as any).io;
-    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000 });
-
-    // Also send each user their problem (via session restore event)
-    io.emit('contest:started', { endTime });
+    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000, eventId });
+    io.emit('contest:started', { endTime, eventId });
 
     await prisma.auditLog.create({
       data: {
         adminId: req.user!.dbUserId,
         action: 'START_CONTEST',
-        detail: `Contest started for ${users.length} users`,
+        detail: `Event "${eventId}" started for ${users.length} users`,
       },
     });
 
-    res.json({ success: true, endTime, usersCount: users.length });
+    res.json({ success: true, endTime, eventId, usersCount: users.length });
   } catch (err) {
     logger.error('Failed to start contest', { error: err });
     res.status(500).json({ error: 'Failed to start contest' });
@@ -210,9 +220,10 @@ router.post('/override', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (action === 'ADJUST_AP' && apDelta !== undefined) {
+      const eventId = await getCurrentEventId();
       const newAP = Math.max(0, target.ap + apDelta);
       await prisma.user.update({ where: { id: targetUserId }, data: { ap: newAP } });
-      await updateLeaderboardScore(targetUserId, newAP);
+      await adjustLeaderboardScore(targetUserId, apDelta, eventId || undefined);
 
       const io = (req as any).io;
       io.to(`user:${target.uid}`).emit('ap:adjusted', { newAP, reason });
@@ -237,6 +248,115 @@ router.post('/override', async (req: Request, res: Response): Promise<void> => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: 'Failed to apply override' });
+  }
+});
+
+// ─── Event Reset Controls ────────────────────────────────────────────────────
+
+const resetSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  durationMinutes: z.number().int().min(1).max(480).optional(),
+});
+
+/**
+ * POST /admin/reset/soft
+ * Restart the timer within the same event — scores and progress are kept.
+ * Use this when you want to give students a fresh time window without wiping scores.
+ */
+router.post('/reset/soft', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const state = await getContestState();
+    if (state !== 'ENDED' && state !== 'PAUSED' && state !== 'RUNNING') {
+      res.status(400).json({ error: 'Can only soft-reset from ENDED, RUNNING, or PAUSED state' });
+      return;
+    }
+
+    const { durationMinutes } = resetSchema.parse(req.body);
+    const durationMins = durationMinutes || parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
+    const endTime = await softReset(durationMins);
+    const eventId = await getCurrentEventId();
+
+    const io = (req as any).io;
+    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMins * 60 * 1000, eventId });
+    io.emit('contest:started', { endTime, eventId });
+
+    await prisma.auditLog.create({
+      data: { adminId: req.user!.dbUserId, action: 'SOFT_RESET', detail: `Timer restarted: ${durationMins} min` },
+    });
+
+    res.json({ success: true, endTime, eventId, type: 'soft' });
+  } catch (err) {
+    logger.error('Soft reset failed', { error: err });
+    res.status(500).json({ error: 'Soft reset failed' });
+  }
+});
+
+/**
+ * POST /admin/reset/hard
+ * Create a brand new event — all scores and problem progress reset to 0.
+ * Body: { name?: string, durationMinutes?: number }
+ */
+router.post('/reset/hard', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, durationMinutes } = resetSchema.parse(req.body);
+    const durationMins = durationMinutes || parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
+
+    const { eventId, endTime } = await hardReset(durationMins, name);
+
+    // Reset all user problem progress (clean slate for new event)
+    await prisma.user.updateMany({
+      where: { isAdmin: false },
+      data: {
+        currentProblemId: null,
+        problemAssignedAt: null,
+        problemsAttempted: 0,
+      },
+    });
+
+    // Get all users and assign fresh first problems + register for new event
+    const users = await prisma.user.findMany({
+      where: { isAdmin: false, isDisqualified: false },
+      select: { id: true },
+    });
+
+    const BATCH = 50;
+    for (let i = 0; i < users.length; i += BATCH) {
+      const batch = users.slice(i, i + BATCH);
+      await Promise.all([
+        ...batch.map((u) => assignNextProblem(u.id)),
+        ...batch.map((u) => registerUserForEvent(u.id, eventId)),
+      ]);
+    }
+
+    const io = (req as any).io;
+    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMins * 60 * 1000, eventId });
+    io.emit('contest:started', { endTime, eventId });
+
+    await prisma.auditLog.create({
+      data: {
+        adminId: req.user!.dbUserId,
+        action: 'HARD_RESET',
+        detail: `New event "${name || eventId}" started. ${users.length} users reset.`,
+      },
+    });
+
+    res.json({ success: true, endTime, eventId, type: 'hard', usersCount: users.length });
+  } catch (err) {
+    logger.error('Hard reset failed', { error: err });
+    res.status(500).json({ error: 'Hard reset failed' });
+  }
+});
+
+/**
+ * GET /admin/events
+ * List all contest events (for history panel).
+ */
+router.get('/events', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const events = await getEventHistory();
+    res.json({ events });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch events' });
   }
 });
 

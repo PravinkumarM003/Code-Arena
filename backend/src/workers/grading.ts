@@ -3,10 +3,10 @@ import { getRedis } from '../config/redis';
 import { prisma } from '../config/database';
 import { executeCode } from '../services/pistonRunner';
 import { gradeWithAI } from '../services/aiGrader';
-import { updateLeaderboardScore, getUserAP } from '../services/leaderboard';
+import { updateLeaderboardScore, getUserAPByEvent, registerUserForEvent } from '../services/leaderboard';
 import { markSolved } from '../services/problemAssigner';
 import { logger } from '../config/logger';
-import { updateInfraStats } from '../services/contestState';
+import { updateInfraStats, getCurrentEventId } from '../services/contestState';
 import type { Language } from '@prisma/client';
 
 // ─── Queue Setup ────────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ export interface SubmissionJobData {
   userId: string;
   dbUserId: string;
   problemId: string;
+  eventId: string | null;   // which event this submission belongs to
   code: string;
   language: string;
   problemTitle: string;
@@ -206,20 +207,53 @@ export function startGradingWorker(io: any): Worker {
         },
       });
 
-      // Step 6: Update leaderboard (add incremental AP)
-      const currentAP = await getUserAP(data.dbUserId);
-      const newTotalAP = currentAP + apAwarded;
+      // Step 6: Update leaderboard — only add the DELTA above previous AP for this problem
+      // This prevents score manipulation via repeated re-submissions of the same problem.
+      const eventId = data.eventId || await getCurrentEventId();
+      const prevApKey = `submission:ap:${data.dbUserId}:${data.problemId}`;
+      const redis = getRedis();
+      const prevApRaw = await redis.get(prevApKey);
+      const prevAp = prevApRaw ? parseFloat(prevApRaw) : 0;
+      const apDelta = Math.max(0, apAwarded - prevAp);
 
-      await updateLeaderboardScore(data.dbUserId, newTotalAP, {
-        problemsSolved: pistonResult.passRatio === 1 ? 1 : 0, // handled via upsert in mark solved
-        lastSubmitTime: Date.now(),
-      });
+      if (apDelta > 0) {
+        await redis.set(prevApKey, apAwarded.toString());
 
-      // Update AP in TiDB
-      await prisma.user.update({
-        where: { id: data.dbUserId },
-        data: { ap: newTotalAP },
-      });
+        // Get current event AP and compute new event total
+        const currentEventAP = eventId ? await getUserAPByEvent(data.dbUserId, eventId) : 0;
+        const newEventAP = currentEventAP + apDelta;
+
+        // Update both per-event and overall leaderboards
+        await updateLeaderboardScore(
+          data.dbUserId,
+          newEventAP,   // absolute event total
+          eventId || 'default',
+          apDelta,      // delta to add to overall
+          {
+            problemsSolved: pistonResult.passRatio === 1 ? 1 : 0,
+            lastSubmitTime: Date.now(),
+          }
+        );
+
+        // Update AP in TiDB (overall AP = sum across all events)
+        const userRecord = await prisma.user.update({
+          where: { id: data.dbUserId },
+          data: { ap: { increment: apDelta } },
+          select: { ap: true },
+        });
+
+        // Upsert EventParticipant record to track per-event AP
+        if (eventId) {
+          await prisma.eventParticipant.upsert({
+            where: { eventId_userId: { eventId, userId: data.dbUserId } },
+            create: { eventId, userId: data.dbUserId, apEarned: apDelta },
+            update: { apEarned: { increment: apDelta } },
+          });
+
+          // Register user in event leaderboard if first time
+          await registerUserForEvent(data.dbUserId, eventId);
+        }
+      }
 
       // If fully solved, mark as solved for problem progression
       if (pistonResult.passRatio === 1) {
@@ -227,9 +261,10 @@ export function startGradingWorker(io: any): Worker {
       }
 
       // Step 7: Emit final result with AI score
+      // Show delta AP (what was actually awarded this submission) to the student
       const finalResult: SubmissionJobResult = {
         ...partialResult,
-        apAwarded,
+        apAwarded: apDelta,   // show the delta earned this submission (0 if no improvement)
         aiScore,
         aiReasoning,
         aiSuggestions,
@@ -237,13 +272,17 @@ export function startGradingWorker(io: any): Worker {
 
       io.to(`user:${data.userId}`).emit('submission:result', finalResult);
 
-      // Broadcast leaderboard update to all clients
-      io.emit('leaderboard:update', { userId: data.dbUserId, newAP: newTotalAP });
+      // Broadcast leaderboard update to all clients (only if AP actually changed)
+      if (apDelta > 0) {
+        const updatedEventAP = eventId ? await getUserAPByEvent(data.dbUserId, eventId) : apDelta;
+        io.emit('leaderboard:update', { userId: data.dbUserId, newAP: updatedEventAP, eventId });
+      }
 
       logger.info('Submission graded', {
         submissionId: data.submissionId,
         passRatio: pistonResult.passRatio,
         apAwarded,
+        apDelta,
         aiScore,
       });
 

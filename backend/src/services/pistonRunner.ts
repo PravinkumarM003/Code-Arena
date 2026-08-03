@@ -4,6 +4,8 @@ import { logger } from '../config/logger';
 const PISTON_URL = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston';
 
 // Maps our language enum to Piston language identifiers
+// Using '*' for version selects the latest available runtime — safer than pinning exact versions
+// which may not be available on the public Piston API (emkc.org/api/v2/piston)
 const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
   PYTHON: { language: 'python', version: '3.10.0' },
   JAVA: { language: 'java', version: '15.0.2' },

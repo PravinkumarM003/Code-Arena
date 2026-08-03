@@ -3,12 +3,47 @@
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
   // TiDB Serverless uses TLS; pass ssl params in DATABASE_URL query string
+}
+
+// ─── Contest Events ───────────────────────────────────────────────────────────
+
+model Event {
+  id            String   @id @default(cuid())
+  name          String   // "Event 1", "Round 2", admin-defined
+  state         String   @default("WAITING") // WAITING | RUNNING | PAUSED | ENDED
+  durationMins  Int      @default(180)
+  startedAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime @default(now())
+
+  submissions    Submission[]
+  solvedProblems SolvedProblem[]
+  skippedProblems SkippedProblem[]
+  participants   EventParticipant[]
+
+  @@index([state])
+  @@index([createdAt])
+}
+
+model EventParticipant {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apEarned  Float    @default(0) // AP earned in this specific event
+  joinedAt  DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
 }
 
 // ─── Users ────────────────────────────────────────────────────────────────────
@@ -21,7 +56,7 @@ model User {
   rollNumber      String   @default("")
   isAdmin         Boolean  @default(false)
   isDisqualified  Boolean  @default(false)
-  ap              Float    @default(0)
+  ap              Float    @default(0)  // overall AP (sum across all events)
   rank            Int?
 
   // Session tracking
@@ -41,6 +76,7 @@ model User {
   performedAudits   AuditLog[]       @relation("AuditAdmin")
   similarityFlags   SimilarityFlag[] @relation("SimilarityUser")
   similarityPairs   SimilarityFlag[] @relation("SimilarityPair")
+  eventParticipants EventParticipant[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -53,24 +89,30 @@ model SolvedProblem {
   id        String  @id @default(cuid())
   userId    String
   problemId String
+  eventId   String? // which event this was solved in (null = legacy)
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   problem   Problem @relation(fields: [problemId], references: [id])
+  event     Event?  @relation(fields: [eventId], references: [id])
   solvedAt  DateTime @default(now())
 
-  @@unique([userId, problemId])
+  @@unique([userId, problemId, eventId]) // allow solving same problem in different events
   @@index([userId])
+  @@index([eventId])
 }
 
 model SkippedProblem {
   id        String  @id @default(cuid())
   userId    String
   problemId String
+  eventId   String? // which event this skip belongs to
   user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   problem   Problem @relation(fields: [problemId], references: [id])
+  event     Event?  @relation(fields: [eventId], references: [id])
   skippedAt DateTime @default(now())
 
-  @@unique([userId, problemId])
+  @@unique([userId, problemId, eventId])
   @@index([userId])
+  @@index([eventId])
 }
 
 // ─── Problems ─────────────────────────────────────────────────────────────────
@@ -118,8 +160,10 @@ model Submission {
   id              String           @id @default(cuid())
   userId          String
   problemId       String
+  eventId         String?          // which event this submission belongs to
   user            User             @relation(fields: [userId], references: [id])
   problem         Problem          @relation(fields: [problemId], references: [id])
+  event           Event?           @relation(fields: [eventId], references: [id])
 
   code            String           @db.Text
   language        Language

@@ -207,12 +207,13 @@ export async function skipProblem(
 ): Promise<ProblemForClient | null> {
   const redis = getRedis();
 
-  // Record the skip
-  await prisma.skippedProblem.upsert({
-    where: { userId_problemId: { userId, problemId } },
-    create: { userId, problemId },
-    update: {},
+  // Record the skip (null eventId = no specific event context)
+  const existingSkip = await prisma.skippedProblem.findFirst({
+    where: { userId, problemId, eventId: null },
   });
+  if (!existingSkip) {
+    await prisma.skippedProblem.create({ data: { userId, problemId, eventId: null } });
+  }
 
   // Clear cached problem
   await redis.del(CURRENT_PROBLEM_KEY(userId));
@@ -231,11 +232,12 @@ export async function markSolved(
   userId: string,
   problemId: string
 ): Promise<void> {
-  await prisma.solvedProblem.upsert({
-    where: { userId_problemId: { userId, problemId } },
-    create: { userId, problemId },
-    update: {},
+  const existingSolve = await prisma.solvedProblem.findFirst({
+    where: { userId, problemId, eventId: null },
   });
+  if (!existingSolve) {
+    await prisma.solvedProblem.create({ data: { userId, problemId, eventId: null } });
+  }
 
   const redis = getRedis();
   await redis.del(CURRENT_PROBLEM_KEY(userId));
@@ -252,4 +254,15 @@ export async function getElapsedSeconds(userId: string): Promise<number> {
   const assignedAtStr = await redis.get(PROBLEM_ASSIGNED_AT_KEY(userId));
   if (!assignedAtStr) return 0;
   return Math.floor((Date.now() - parseInt(assignedAtStr)) / 1000);
+}
+
+/**
+ * Clear a user's current problem state from Redis.
+ * Called during hard reset so the next assignNextProblem() gives them a clean first problem.
+ * DB fields (currentProblemId, problemsAttempted) are reset separately in admin.ts.
+ */
+export async function resetUserProgress(userId: string): Promise<void> {
+  const redis = getRedis();
+  await redis.del(CURRENT_PROBLEM_KEY(userId));
+  await redis.del(PROBLEM_ASSIGNED_AT_KEY(userId));
 }

@@ -131,6 +131,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       sock.on('session:restored', (data: {
         state: ContestState;
         remainingMs: number;
+        endTime?: number;       // absolute epoch ms for the countdown timer
         problem: Problem | null;
         draft: { code: string; language: string } | null;
         ap: number;
@@ -138,6 +139,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       }) => {
         setContestState(data.state);
         setRemainingMs(data.remainingMs);
+        if (data.endTime) setEndTime(data.endTime);  // keeps countdown accurate after reconnect
         setCurrentProblem(data.problem);
         setCurrentDraft(data.draft);
         setAp(data.ap);
@@ -226,7 +228,27 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
     }
 
     return () => {
-      // Don't disconnect on re-render, only on unmount
+      // Clean up all listeners on unmount to prevent accumulation across re-renders
+      const sock = socket;
+      if (sock) {
+        sock.off('contest:state');
+        sock.off('contest:connected');
+        sock.off('contest:extended');
+        sock.off('contest:announcement');
+        sock.off('contest:started');
+        sock.off('session:restored');
+        sock.off('submission:judging');
+        sock.off('submission:testResults');
+        sock.off('submission:result');
+        sock.off('submission:error');
+        sock.off('ap:adjusted');
+        sock.off('anticheat:warning');
+        sock.off('anticheat:penalty');
+        sock.off('anticheat:locked');
+        sock.off('connect');
+        sock.off('reconnect');
+        sock.off('connect_error');
+      }
     };
   }, [user, connectSocket]);
 

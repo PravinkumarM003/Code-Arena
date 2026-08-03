@@ -6,6 +6,7 @@ import {
   ChevronUp, ChevronDown, Loader2, BookOpen, Trash2, Edit3, Cpu
 } from 'lucide-react';
 import api from '../lib/api';
+import { useContest } from '../contexts/ContestContext';
 import toast from 'react-hot-toast';
 
 type ContestState = 'WAITING' | 'RUNNING' | 'PAUSED' | 'ENDED';
@@ -37,6 +38,7 @@ interface Problem {
 type Tab = 'control' | 'monitor' | 'problems' | 'incidents';
 
 export default function AdminDashboard() {
+  const { socket } = useContest();
   const [contestState, setContestState] = useState<ContestState>('WAITING');
   const [remainingMs, setRemainingMs] = useState(0);
   const [users, setUsers] = useState<MonitorUser[]>([]);
@@ -48,6 +50,8 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<'rank' | 'ap' | 'name'>('rank');
   const [incidents, setIncidents] = useState<Array<{ uid: string; name: string; eventType: string; count: number; timestamp: number }>>([]);
+  const [resetEventName, setResetEventName] = useState('');
+  const [showResetPanel, setShowResetPanel] = useState(false);
 
   // New problem form
   const [showProblemForm, setShowProblemForm] = useState(false);
@@ -86,18 +90,28 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchMonitor();
     fetchProblems();
-    const interval = setInterval(fetchMonitor, 3000); // poll every 3s
+    const interval = setInterval(fetchMonitor, 3000); // poll every 3s — also syncs remainingMs
     return () => clearInterval(interval);
   }, [fetchMonitor, fetchProblems]);
 
-  // Timer display
+  // Listen for real-time anti-cheat incidents via socket
   useEffect(() => {
-    if (contestState !== 'RUNNING') return;
-    const interval = setInterval(() => {
-      setRemainingMs((prev) => Math.max(0, prev - 1000));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [contestState]);
+    if (!socket) return;
+    const handleIncident = (data: { uid: string; name: string; eventType: string; count: number; timestamp: number }) => {
+      setIncidents((prev) => {
+        // Upsert: update count if same user+eventType already logged, else prepend
+        const existing = prev.findIndex((i) => i.uid === data.uid && i.eventType === data.eventType);
+        if (existing !== -1) {
+          const updated = [...prev];
+          updated[existing] = data;
+          return updated;
+        }
+        return [data, ...prev];
+      });
+    };
+    socket.on('admin:incident', handleIncident);
+    return () => { socket.off('admin:incident', handleIncident); };
+  }, [socket]);
 
   function formatTime(ms: number) {
     const s = Math.floor(ms / 1000);
@@ -169,6 +183,39 @@ export default function AdminDashboard() {
       toast.success(`Contest extended by ${extendMinutes} minutes!`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to extend');
+    }
+  };
+
+  const handleSoftReset = async () => {
+    if (!confirm('Soft Reset: restart the timer but keep all current scores and progress?')) return;
+    setLoading(true);
+    try {
+      const res = await api.post('/admin/reset/soft');
+      setContestState('RUNNING');
+      setShowResetPanel(false);
+      toast.success(`Timer restarted! Same event continues.`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Soft reset failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleHardReset = async () => {
+    if (!confirm('Hard Reset: create a BRAND NEW event? All scores and problem progress will reset to 0. This cannot be undone.')) return;
+    setLoading(true);
+    try {
+      const res = await api.post('/admin/reset/hard', {
+        name: resetEventName.trim() || undefined,
+      });
+      setContestState('RUNNING');
+      setShowResetPanel(false);
+      setResetEventName('');
+      toast.success(`New event "${res.data.eventId}" started for ${res.data.usersCount} users!`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Hard reset failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -367,6 +414,62 @@ export default function AdminDashboard() {
                 <Square className="w-4 h-4" />
                 Stop Contest
               </button>
+
+              {/* New Event panel — shown when contest ENDED */}
+              {contestState === 'ENDED' && (
+                <div className="mt-4 border-t border-white/10 pt-4">
+                  <button
+                    id="admin-new-event-toggle"
+                    onClick={() => setShowResetPanel((v) => !v)}
+                    className="btn-secondary w-full justify-center py-2.5 text-sm"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Start New Event / Repeat
+                  </button>
+
+                  {showResetPanel && (
+                    <div className="mt-3 space-y-3 animate-fade-in">
+                      <input
+                        id="admin-event-name"
+                        type="text"
+                        value={resetEventName}
+                        onChange={(e) => setResetEventName(e.target.value)}
+                        placeholder="Event name (optional, e.g. Round 2)"
+                        className="input w-full text-sm"
+                      />
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          id="admin-soft-reset"
+                          onClick={handleSoftReset}
+                          disabled={loading}
+                          className="btn-secondary justify-center py-2.5 text-sm disabled:opacity-40"
+                          title="Restart timer only. All scores are kept."
+                        >
+                          <RefreshCw className="w-4 h-4" />
+                          Soft Reset
+                          <span className="text-xs text-white/40 block leading-none">Keep scores</span>
+                        </button>
+                        <button
+                          id="admin-hard-reset"
+                          onClick={handleHardReset}
+                          disabled={loading}
+                          className="bg-red-600 hover:bg-red-500 text-white font-semibold rounded-xl flex flex-col items-center justify-center gap-0.5 py-2.5 px-3 transition-all disabled:opacity-40"
+                          title="New event: all scores and problem progress reset to 0."
+                        >
+                          <div className="flex items-center gap-1.5">
+                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                            Hard Reset
+                          </div>
+                          <span className="text-xs text-red-200/60">Fresh scores</span>
+                        </button>
+                      </div>
+                      <p className="text-white/30 text-xs text-center">
+                        Soft = same event, timer restarts · Hard = brand new event, everyone starts at 0
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Extend Time */}

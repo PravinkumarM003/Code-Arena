@@ -57,12 +57,12 @@ export default function ContestPage() {
     }
   }, [currentProblem?.id, currentDraft]);
 
-  // Update starter code when language changes
+  // Update starter code when language changes (only if no draft for the current problem)
   useEffect(() => {
     if (!currentDraft && currentProblem?.starterCode?.[selectedLang]) {
       setCode(currentProblem.starterCode[selectedLang]);
     }
-  }, [selectedLang]);
+  }, [selectedLang, currentProblem, currentDraft]);
 
   // Skip lockout countdown
   useEffect(() => {
