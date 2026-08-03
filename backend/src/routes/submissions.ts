@@ -172,7 +172,7 @@ router.post('/draft', async (req: Request, res: Response): Promise<void> => {
 
 const runSchema = z.object({
   code: z.string().min(1).max(100_000),
-  language: z.enum(['PYTHON', 'JAVA', 'CPP', 'JAVASCRIPT']),
+  language: z.enum(['PYTHON', 'JAVA', 'CPP', 'C', 'JAVASCRIPT', 'TYPESCRIPT', 'CSHARP', 'GO', 'RUST', 'PHP']),
   stdin: z.string().max(10_000).default(''), // user-supplied input (multi-line ok)
 });
 
@@ -196,10 +196,16 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
 
     // Piston language map
     const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
-      PYTHON: { language: 'python', version: '3.10.0' },
-      JAVA: { language: 'java', version: '15.0.2' },
-      CPP: { language: 'c++', version: '10.2.0' },
-      JAVASCRIPT: { language: 'javascript', version: '18.15.0' },
+      PYTHON: { language: 'python', version: '*' },
+      JAVA: { language: 'java', version: '*' },
+      CPP: { language: 'c++', version: '*' },
+      C: { language: 'c', version: '*' },
+      JAVASCRIPT: { language: 'javascript', version: '*' },
+      TYPESCRIPT: { language: 'typescript', version: '*' },
+      CSHARP: { language: 'csharp', version: '*' },
+      GO: { language: 'go', version: '*' },
+      RUST: { language: 'rust', version: '*' },
+      PHP: { language: 'php', version: '*' },
     };
 
     const langConfig = LANGUAGE_MAP[language];

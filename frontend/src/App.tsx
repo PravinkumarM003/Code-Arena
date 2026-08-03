@@ -10,6 +10,7 @@ import EndedScreen from './pages/EndedScreen';
 import AdminDashboard from './pages/AdminDashboard';
 import LeaderboardPage from './pages/LeaderboardPage';
 import ResultsPage from './pages/ResultsPage';
+import CompilerPage from './pages/CompilerPage';
 
 /**
  * Smart contest router: selects the correct screen based on
@@ -62,6 +63,7 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/leaderboard" element={<LeaderboardPage />} />
+        <Route path="/compiler" element={<CompilerPage />} />
 
         {/* Protected */}
         <Route
