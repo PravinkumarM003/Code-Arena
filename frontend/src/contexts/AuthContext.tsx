@@ -10,6 +10,7 @@ import { disconnectSocket } from '../lib/socket';
 import toast from 'react-hot-toast';
 
 const COLLEGE_DOMAIN = import.meta.env.VITE_COLLEGE_EMAIL_DOMAIN || 'bitsathy.ac.in';
+const ADMIN_EMAIL = (import.meta.env.VITE_ADMIN_EMAIL || '').toLowerCase();
 
 interface AuthContextType {
   user: User | null;
@@ -29,15 +30,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Client-side domain check (server re-checks this independently)
-        if (!firebaseUser.email?.endsWith(`@${COLLEGE_DOMAIN}`)) {
+        // Client-side domain check (server re-checks independently)
+        const email = firebaseUser.email || '';
+        const isAdmin = email.toLowerCase() === ADMIN_EMAIL;
+        if (!isAdmin && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
           await signOut(auth);
           toast.error(`Only @${COLLEGE_DOMAIN} accounts are allowed.`);
           setUser(null);
         } else {
           // Check for admin custom claim
           const tokenResult = await firebaseUser.getIdTokenResult();
-          setIsAdmin(tokenResult.claims.admin === true);
+          setIsAdmin(tokenResult.claims.admin === true || isAdmin);
           setUser(firebaseUser);
         }
       } else {
@@ -54,8 +57,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const email = result.user.email || '';
+      const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
-      if (!email.endsWith(`@${COLLEGE_DOMAIN}`)) {
+      if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
         await signOut(auth);
         toast.error(`Only @${COLLEGE_DOMAIN} accounts are allowed.`);
         return;
