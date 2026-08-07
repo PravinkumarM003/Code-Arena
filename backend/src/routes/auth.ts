@@ -25,18 +25,18 @@ router.post('/login', async (req: Request, res: Response) => {
     const decoded = await admin.auth().verifyIdToken(token);
     const email = decoded.email || '';
 
-    if (!email.endsWith(`@${COLLEGE_DOMAIN}`)) {
+    // Auto-promote configured admin email (must be checked before domain validation)
+    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
+    const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
+
+    // Block non-college emails UNLESS it's the designated admin email
+    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
       return res.status(403).json({ error: `Only @${COLLEGE_DOMAIN} accounts are allowed.` });
     }
 
     // Derive display name and roll number from email/token
     const name = decoded.name || email.split('@')[0];
-    // Roll number is the local part of the email (e.g. "21ad001" from "21ad001@bitsathy.ac.in")
     const rollNumber = email.split('@')[0].toUpperCase();
-
-    // Auto-promote configured admin email
-    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
-    const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
     // Upsert: create user if first login, update lastSeenAt on subsequent logins
     const user = await prisma.user.upsert({

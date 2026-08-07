@@ -45,7 +45,11 @@ export async function authMiddleware(
 
     // 2. Server-side domain check — never trust client claim
     const email = decoded.email || '';
-    if (!email.endsWith(`@${COLLEGE_DOMAIN}`)) {
+    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
+    const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
+
+    // Allow admin email to bypass domain restriction (e.g. personal Gmail for admin)
+    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
       logger.warn('Auth rejected: invalid email domain', { email });
       res.status(403).json({ error: `Only @${COLLEGE_DOMAIN} accounts are allowed` });
       return;
