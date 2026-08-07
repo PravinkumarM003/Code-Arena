@@ -33,11 +33,19 @@ const app = express();
 // Security headers
 app.use(helmet({ contentSecurityPolicy: false }));
 
-// CORS — only allow the frontend origin
+// CORS — allow local dev + production URLs
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',                    // local Vite dev server
+  'http://localhost:4173',                    // local Vite preview
+  'https://bitcodearena.vercel.app',          // production frontend
+  'https://code-arena-rqa2.onrender.com',    // Render backend (self + preview)
+  FRONTEND_URL,                               // any extra URL from .env
+  /\.vercel\.app$/,                           // any Vercel preview deployment
+];
 app.use(
   cors({
-    origin: [FRONTEND_URL, /\.vercel\.app$/],
+    origin: ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -63,7 +71,7 @@ const server = http.createServer(app);
 
 const io = new SocketServer(server, {
   cors: {
-    origin: [FRONTEND_URL, /\.vercel\.app$/],
+    origin: ALLOWED_ORIGINS,
     credentials: true,
   },
   pingTimeout: 30000,

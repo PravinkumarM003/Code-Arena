@@ -15,11 +15,14 @@
     }
   ],
   "env": {
-    "VITE_FIREBASE_API_KEY": "@vite-firebase-api-key",
-    "VITE_FIREBASE_AUTH_DOMAIN": "@vite-firebase-auth-domain",
-    "VITE_FIREBASE_PROJECT_ID": "@vite-firebase-project-id",
-    "VITE_FIREBASE_APP_ID": "@vite-firebase-app-id",
-    "VITE_COLLEGE_EMAIL_DOMAIN": "@vite-college-email-domain",
-    "VITE_BACKEND_URL": "@vite-backend-url"
+    "VITE_FIREBASE_API_KEY": "AIzaSyBgtoBruGJbU4IEFEEz5ChrkzfHAtlR87M",
+    "VITE_FIREBASE_AUTH_DOMAIN": "codearena-842a6.firebaseapp.com",
+    "VITE_FIREBASE_PROJECT_ID": "codearena-842a6",
+    "VITE_FIREBASE_STORAGE_BUCKET": "codearena-842a6.firebasestorage.app",
+    "VITE_FIREBASE_MESSAGING_SENDER_ID": "209343884753",
+    "VITE_FIREBASE_APP_ID": "1:209343884753:web:8e673bae4225d43b9184f0",
+    "VITE_FIREBASE_MEASUREMENT_ID": "G-X7P5W2MQWL",
+    "VITE_COLLEGE_EMAIL_DOMAIN": "bitsathy.ac.in",
+    "VITE_BACKEND_URL": "https://code-arena-rqa2.onrender.com"
   }
 }

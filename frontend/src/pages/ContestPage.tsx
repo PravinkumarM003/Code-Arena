@@ -105,6 +105,31 @@ export default function ContestPage() {
   const isPaused = contestState === 'PAUSED';
   const isTimeWarning = remainingMs < 5 * 60 * 1000 && remainingMs > 0;
 
+  // While contest is running but problem hasn't loaded yet (gap between contest:started and session:restored)
+  if (contestState === 'RUNNING' && !currentProblem && !isLocked) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-surface-950 text-white gap-6">
+        <div className="flex flex-col items-center gap-4 glass-card p-10 max-w-sm w-full text-center">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-xl shadow-emerald-500/30 animate-pulse">
+            <Code2 className="w-8 h-8 text-white" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-white mb-1">Loading Your Problem</h2>
+            <p className="text-white/40 text-sm">The server is assigning your first problem...</p>
+          </div>
+          <div className="flex items-center gap-2 text-emerald-400 text-sm font-mono animate-pulse">
+            <Clock className="w-4 h-4" />
+            <span>Please wait a moment</span>
+          </div>
+          <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full animate-pulse w-2/3" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+
   return (
     <div className="h-screen flex flex-col bg-surface-950 overflow-hidden font-sans">
       {/* Pause Overlay */}

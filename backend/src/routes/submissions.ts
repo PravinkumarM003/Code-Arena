@@ -188,13 +188,13 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
     const runLimitKey = `run:cooldown:${req.user!.uid}`;
     const onCooldown = await redis.get(runLimitKey);
     if (onCooldown) {
-      res.status(429).json({ error: 'Please wait a moment before running again.' });
+      res.status(429).json({ error: 'Please wait 8 seconds before running again.' });
       return;
     }
 
     const { code, language, stdin } = runSchema.parse(req.body);
 
-    // Piston language map
+    // Piston language map — use '*' to select latest available runtime
     const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
       PYTHON: { language: 'python', version: '*' },
       JAVA: { language: 'java', version: '*' },
@@ -214,26 +214,41 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Set cooldown before executing so spammers are blocked
-    await redis.setex(runLimitKey, 5, '1');
+    // Set cooldown BEFORE executing — blocks re-runs while code is executing
+    // Increased to 8s during contest to prevent hammering the public Piston API
+    await redis.setex(runLimitKey, 8, '1');
 
     const axios = (await import('axios')).default;
     const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston';
     const startTime = Date.now();
 
-    const response = await axios.post(
-      `${pistonUrl}/execute`,
-      {
-        language: langConfig.language,
-        version: langConfig.version,
-        files: [{ name: 'main', content: code }],
-        stdin,
-        run_timeout: 10_000,   // 10s — generous for manual runs
-        compile_timeout: 20_000,
-        run_memory_limit: 128 * 1024 * 1024,
-      },
-      { timeout: 30_000 }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        `${pistonUrl}/execute`,
+        {
+          language: langConfig.language,
+          version: langConfig.version,
+          files: [{ name: 'main', content: code }],
+          stdin,
+          run_timeout: 8_000,      // 8s per run — balanced for contest
+          compile_timeout: 15_000,  // 15s to compile
+          run_memory_limit: 128 * 1024 * 1024,  // 128MB
+        },
+        { timeout: 25_000 }  // total axios timeout
+      );
+    } catch (pistonErr: any) {
+      // Release cooldown early so user isn't blocked if Piston was unavailable
+      await redis.del(runLimitKey);
+      if (pistonErr.code === 'ECONNABORTED' || pistonErr.code === 'ETIMEDOUT') {
+        res.status(503).json({ error: 'Execution timed out. Try a simpler test case or try again.' });
+      } else if (pistonErr.response?.status === 429) {
+        res.status(429).json({ error: 'Execution service is busy. Please wait a few seconds and try again.' });
+      } else {
+        res.status(503).json({ error: 'Execution service unavailable. Please try again in a moment.' });
+      }
+      return;
+    }
 
     const runtimeMs = Date.now() - startTime;
     const result = response.data;

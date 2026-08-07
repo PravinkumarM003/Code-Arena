@@ -123,8 +123,11 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       });
 
       sock.on('contest:started', () => {
-        // Server will emit session:restored with the first problem
-        toast.success('🚀 Contest has started!', { duration: 5000 });
+        // Contest just started — immediately request our assigned problem from the server.
+        // The backend has already run assignNextProblem() for all users in admin /start.
+        // Without this emit, the problem never loads for already-connected users.
+        sock.emit('session:restore');
+        toast.success('🚀 Contest has started! Loading your problem...', { duration: 5000 });
       });
 
       // ── Session Restore ──────────────────────────────────────────────

@@ -167,9 +167,19 @@ export default function OnlineGDBCompiler({
         setActiveTab('compile');
       }
     } catch (err: any) {
-      const msg = err.response?.data?.error || 'Execution failed';
-      setRunResult({ stdout: '', stderr: msg, compileError: null, runtimeMs: 0, exitCode: 1 });
-      setActiveTab('output');
+      const status = err.response?.status;
+      const serverMsg = err.response?.data?.error;
+
+      if (status === 429) {
+        // Rate limited — show toast, don't pollute the output panel
+        toast.error(serverMsg || 'Please wait before running again.');
+      } else if (status === 503) {
+        toast.error(serverMsg || 'Execution service is temporarily busy. Try again in a moment.');
+      } else {
+        const msg = serverMsg || 'Execution failed. Please try again.';
+        setRunResult({ stdout: '', stderr: msg, compileError: null, runtimeMs: 0, exitCode: 1 });
+        setActiveTab('output');
+      }
     } finally {
       setIsRunning(false);
     }
