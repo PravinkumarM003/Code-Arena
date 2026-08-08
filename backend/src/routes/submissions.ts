@@ -194,18 +194,18 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
 
     const { code, language, stdin } = runSchema.parse(req.body);
 
-    // Piston language map — use '*' to select latest available runtime
+    // Use exact pinned versions — Piston rejects '*' for some runtimes
     const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
-      PYTHON: { language: 'python', version: '*' },
-      JAVA: { language: 'java', version: '*' },
-      CPP: { language: 'c++', version: '*' },
-      C: { language: 'c', version: '*' },
-      JAVASCRIPT: { language: 'javascript', version: '*' },
-      TYPESCRIPT: { language: 'typescript', version: '*' },
-      CSHARP: { language: 'csharp', version: '*' },
-      GO: { language: 'go', version: '*' },
-      RUST: { language: 'rust', version: '*' },
-      PHP: { language: 'php', version: '*' },
+      PYTHON:     { language: 'python',     version: '3.10.0' },
+      JAVA:       { language: 'java',       version: '15.0.2' },
+      CPP:        { language: 'c++',        version: '10.2.0' },
+      C:          { language: 'c',          version: '10.2.0' },
+      JAVASCRIPT: { language: 'javascript', version: '18.15.0' },
+      TYPESCRIPT: { language: 'typescript', version: '5.0.3' },
+      CSHARP:     { language: 'csharp',     version: '6.12.0' },
+      GO:         { language: 'go',         version: '1.16.2' },
+      RUST:       { language: 'rust',       version: '1.68.2' },
+      PHP:        { language: 'php',        version: '8.2.3' },
     };
 
     const langConfig = LANGUAGE_MAP[language];
@@ -215,7 +215,6 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Set cooldown BEFORE executing — blocks re-runs while code is executing
-    // Increased to 8s during contest to prevent hammering the public Piston API
     await redis.setex(runLimitKey, 8, '1');
 
     const axios = (await import('axios')).default;
@@ -231,19 +230,26 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
           version: langConfig.version,
           files: [{ name: 'main', content: code }],
           stdin,
-          run_timeout: 8_000,      // 8s per run — balanced for contest
-          compile_timeout: 15_000,  // 15s to compile
-          run_memory_limit: 128 * 1024 * 1024,  // 128MB
+          run_timeout: 8_000,
+          compile_timeout: 15_000,
+          run_memory_limit: 128 * 1024 * 1024,
         },
-        { timeout: 25_000 }  // total axios timeout
+        { timeout: 25_000 }
       );
     } catch (pistonErr: any) {
-      // Release cooldown early so user isn't blocked if Piston was unavailable
+      // Release cooldown so user can retry immediately
       await redis.del(runLimitKey);
+
+      const status = pistonErr.response?.status;
+      const errMsg = pistonErr.response?.data?.message || pistonErr.message || 'unknown';
+      logger.error('Piston run error', { language, status, error: errMsg, code: pistonErr.code });
+
       if (pistonErr.code === 'ECONNABORTED' || pistonErr.code === 'ETIMEDOUT') {
-        res.status(503).json({ error: 'Execution timed out. Try a simpler test case or try again.' });
-      } else if (pistonErr.response?.status === 429) {
+        res.status(503).json({ error: 'Execution timed out. Simplify your code or try again.' });
+      } else if (status === 429) {
         res.status(429).json({ error: 'Execution service is busy. Please wait a few seconds and try again.' });
+      } else if (status === 400) {
+        res.status(400).json({ error: `Execution error: ${errMsg}` });
       } else {
         res.status(503).json({ error: 'Execution service unavailable. Please try again in a moment.' });
       }
