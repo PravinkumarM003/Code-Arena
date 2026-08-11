@@ -3,14 +3,14 @@ import { logger } from '../config/logger';
 
 const PISTON_URL = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston';
 
-// Maps our language enum to Piston language identifiers
-// Using '*' for version selects the latest available runtime — safer than pinning exact versions
-// which may not be available on the public Piston API (emkc.org/api/v2/piston)
-const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
-  PYTHON: { language: 'python', version: '3.10.0' },
-  JAVA: { language: 'java', version: '15.0.2' },
-  CPP: { language: 'c++', version: '10.2.0' },
-  JAVASCRIPT: { language: 'javascript', version: '18.15.0' },
+// Maps our language enum to Piston language identifiers + the required file extension.
+// Piston uses the file extension to select the correct compiler/interpreter.
+// Java requires the filename to match the public class name (Main).
+const LANGUAGE_MAP: Record<string, { language: string; version: string; filename: string }> = {
+  PYTHON:     { language: 'python',     version: '3.10.0',  filename: 'main.py'   },
+  JAVA:       { language: 'java',       version: '15.0.2',  filename: 'Main.java' },
+  CPP:        { language: 'c++',        version: '10.2.0',  filename: 'main.cpp'  },
+  JAVASCRIPT: { language: 'javascript', version: '18.15.0', filename: 'main.js'   },
 };
 
 export interface TestCaseResult {
@@ -55,7 +55,9 @@ export async function executeCode(
         {
           language: langConfig.language,
           version: langConfig.version,
-          files: [{ name: 'main', content: code }],
+          // Piston requires the correct file extension so it picks the right compiler.
+          // Java also requires the filename to match the public class name (Main).
+          files: [{ name: langConfig.filename, content: code }],
           stdin: tc.input,
           run_timeout: 5000, // 5 second per test case
           compile_timeout: 15000,

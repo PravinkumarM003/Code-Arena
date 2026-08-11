@@ -22,7 +22,7 @@ export default function CompilerPage() {
               <Code2 className="w-3.5 h-3.5 text-white" />
             </div>
             <span className="font-bold text-white text-sm font-mono tracking-wide">
-              OnlineGDB Compiler & IDE
+              CodeArena Compiler & IDE
             </span>
           </div>
         </div>

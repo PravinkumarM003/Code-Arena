@@ -97,6 +97,7 @@ export default function OnlineGDBCompiler({
     stdout: string;
     stderr: string;
     compileError: string | null;
+    runtimeError: string | null;   // program crashed / non-zero exit with stderr
     runtimeMs: number;
     exitCode: number;
   } | null>(null);
@@ -152,7 +153,7 @@ export default function OnlineGDBCompiler({
   const handleRunCode = async () => {
     if (!code.trim() || isRunning) return;
     setIsRunning(true);
-    setRunResult(null);
+    setRunResult(null);   // clear ALL previous output/errors before each run
     setActiveTab('output');
 
     try {
@@ -163,21 +164,23 @@ export default function OnlineGDBCompiler({
       });
 
       setRunResult(res.data);
+      // Auto-switch to the most informative tab
       if (res.data.compileError) {
         setActiveTab('compile');
+      } else if (res.data.runtimeError) {
+        setActiveTab('output');   // runtime errors live in output tab
       }
     } catch (err: any) {
       const status = err.response?.status;
       const serverMsg = err.response?.data?.error;
 
       if (status === 429) {
-        // Rate limited — show toast, don't pollute the output panel
         toast.error(serverMsg || 'Please wait before running again.');
       } else if (status === 503) {
         toast.error(serverMsg || 'Execution service is temporarily busy. Try again in a moment.');
       } else {
         const msg = serverMsg || 'Execution failed. Please try again.';
-        setRunResult({ stdout: '', stderr: msg, compileError: null, runtimeMs: 0, exitCode: 1 });
+        setRunResult({ stdout: '', stderr: '', runtimeError: msg, compileError: null, runtimeMs: 0, exitCode: 1 });
         setActiveTab('output');
       }
     } finally {
@@ -306,7 +309,7 @@ export default function OnlineGDBCompiler({
 
   return (
     <div className="h-full flex flex-col bg-surface-950 text-white overflow-hidden font-sans select-none">
-      {/* ── Top OnlineGDB Header Toolbar ────────────────────────────────────── */}
+      {/* ── Top CodeArena Header Toolbar ────────────────────────────────────── */}
       <header className="flex flex-wrap items-center justify-between px-3 py-1.5 bg-[#161b22] border-b border-white/10 gap-2 flex-shrink-0 z-10 shadow-lg">
         {/* Left section: Logo & Panel toggle */}
         <div className="flex items-center gap-2">
@@ -325,7 +328,7 @@ export default function OnlineGDBCompiler({
               <FileCode className="w-4 h-4 text-white" />
             </div>
             <span className="font-mono font-bold text-sm bg-gradient-to-r from-emerald-400 to-teal-300 bg-clip-text text-transparent hidden sm:inline">
-              OnlineGDB Compiler
+              CodeArena Compiler
             </span>
           </div>
 
@@ -658,7 +661,7 @@ export default function OnlineGDBCompiler({
             title="Drag to resize terminal panel"
           />
 
-          {/* ── OnlineGDB Bottom Terminal Panel ──────────────────────────────── */}
+          {/* ── CodeArena Bottom Terminal Panel ──────────────────────────────── */}
           <div
             className="flex flex-col bg-[#0d1117] border-t border-white/10 flex-shrink-0 font-mono text-xs overflow-hidden"
             style={{ height: terminalHeight }}
@@ -746,7 +749,7 @@ export default function OnlineGDBCompiler({
                 <div className="space-y-2">
                   {!runResult && !isRunning && (
                     <div className="text-white/30 space-y-1">
-                      <p className="text-emerald-500/80">OnlineGDB Interactive Console Shell v2.4</p>
+                      <p className="text-emerald-500/80">CodeArena Interactive Console Shell v2.4</p>
                       <p>Type your code and press <span className="text-emerald-400 font-bold">Run (F9)</span> to execute.</p>
                     </div>
                   )}
@@ -760,32 +763,52 @@ export default function OnlineGDBCompiler({
 
                   {runResult && !isRunning && (
                     <div className="space-y-2">
-                      {/* Terminal Command Simulation Header */}
-                      <div className="text-white/40 border-b border-white/5 pb-1 text-[11px]">
-                        $ g++ main.{currentLangConfig.ext} -o main && ./main
+                      {/* Terminal Command Header — language-aware */}
+                      <div className="text-white/40 border-b border-white/5 pb-1 text-[11px] font-mono">
+                        {selectedLang === 'PYTHON'     && '$ python3 main.py'}
+                        {selectedLang === 'JAVA'       && '$ javac Main.java && java Main'}
+                        {selectedLang === 'CPP'        && '$ g++ main.cpp -o main && ./main'}
+                        {selectedLang === 'C'          && '$ gcc main.c -o main && ./main'}
+                        {selectedLang === 'JAVASCRIPT' && '$ node main.js'}
+                        {selectedLang === 'TYPESCRIPT' && '$ ts-node main.ts'}
+                        {selectedLang === 'CSHARP'     && '$ mcs main.cs && mono main.exe'}
+                        {selectedLang === 'GO'         && '$ go run main.go'}
+                        {selectedLang === 'RUST'       && '$ rustc main.rs && ./main'}
+                        {selectedLang === 'PHP'        && '$ php main.php'}
+                        {!['PYTHON','JAVA','CPP','C','JAVASCRIPT','TYPESCRIPT','CSHARP','GO','RUST','PHP'].includes(selectedLang) &&
+                          `$ run ${currentLangConfig.ext}`}
                       </div>
 
-                      {runResult.compileError && (
-                        <div className="bg-red-950/30 border border-red-500/20 p-2.5 rounded text-red-400 whitespace-pre-wrap break-words">
-                          <span className="font-bold text-red-300">[Compilation Error]</span>
-                          {'\n'}{runResult.compileError}
+                      {/* ── Runtime Error (program crashed) ─────────────── */}
+                      {runResult.runtimeError && (
+                        <div className="bg-red-950/40 border border-red-500/40 rounded-lg overflow-hidden">
+                          <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border-b border-red-500/30">
+                            <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                            <span className="font-bold text-red-300 text-[11px] tracking-wide uppercase">Runtime Error — Process exited with code {runResult.exitCode}</span>
+                          </div>
+                          <pre className="text-red-300 whitespace-pre-wrap break-words p-3 leading-relaxed">
+                            {runResult.runtimeError}
+                          </pre>
                         </div>
                       )}
 
+                      {/* ── Standard Output ─────────────────────────────── */}
                       {runResult.stdout && (
                         <pre className="text-emerald-300 font-mono whitespace-pre-wrap break-words leading-relaxed">
                           {runResult.stdout}
                         </pre>
                       )}
 
+                      {/* ── Stderr (non-crash, deliberate print to stderr) ─ */}
                       {runResult.stderr && (
-                        <div className="text-red-400/90 font-mono whitespace-pre-wrap break-words mt-2 border-t border-red-500/10 pt-1">
-                          <span className="text-red-500 font-bold">[stderr]:</span>
-                          {'\n'}{runResult.stderr}
+                        <div className="bg-amber-950/20 border border-amber-500/20 rounded p-2.5">
+                          <span className="text-amber-400 font-bold text-[10px] uppercase tracking-wide">stderr output:</span>
+                          <pre className="text-amber-300/90 whitespace-pre-wrap break-words mt-1">{runResult.stderr}</pre>
                         </div>
                       )}
 
-                      {!runResult.compileError && !runResult.stdout && !runResult.stderr && (
+                      {/* ── No output ───────────────────────────────────── */}
+                      {!runResult.compileError && !runResult.runtimeError && !runResult.stdout && !runResult.stderr && (
                         <p className="text-white/30">(Program completed with no output)</p>
                       )}
 

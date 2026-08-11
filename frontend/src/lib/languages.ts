@@ -17,7 +17,7 @@ using namespace std;
 
 int main() {
     // Write C++ code here
-    cout << "Hello World from OnlineGDB Compiler!" << endl;
+    cout << "Hello World from CodeArena Compiler!" << endl;
     return 0;
 }
 `,
@@ -31,7 +31,7 @@ int main() {
 
 int main() {
     // Write C code here
-    printf("Hello World from OnlineGDB Compiler!\\n");
+    printf("Hello World from CodeArena Compiler!\\n");
     return 0;
 }
 `,
@@ -41,9 +41,9 @@ int main() {
     label: 'Python 3',
     monaco: 'python',
     ext: 'py',
-    template: `# OnlineGDB Python 3 Compiler
+    template: `# CodeArena Python 3 Compiler
 def main():
-    print("Hello World from OnlineGDB Compiler!")
+    print("Hello World from CodeArena Compiler!")
 
 if __name__ == "__main__":
     main()
@@ -57,7 +57,7 @@ if __name__ == "__main__":
     template: `public class Main {
     public static void main(String[] args) {
         // Write Java code here
-        System.out.println("Hello World from OnlineGDB Compiler!");
+        System.out.println("Hello World from CodeArena Compiler!");
     }
 }
 `,
@@ -67,9 +67,9 @@ if __name__ == "__main__":
     label: 'JavaScript',
     monaco: 'javascript',
     ext: 'js',
-    template: `// OnlineGDB JavaScript Compiler
+    template: `// CodeArena JavaScript Compiler
 function main() {
-    console.log("Hello World from OnlineGDB Compiler!");
+    console.log("Hello World from CodeArena Compiler!");
 }
 
 main();
@@ -80,8 +80,8 @@ main();
     label: 'TypeScript',
     monaco: 'typescript',
     ext: 'ts',
-    template: `// OnlineGDB TypeScript Compiler
-const message: string = "Hello World from OnlineGDB Compiler!";
+    template: `// CodeArena TypeScript Compiler
+const message: string = "Hello World from CodeArena Compiler!";
 console.log(message);
 `,
   },
@@ -95,7 +95,7 @@ console.log(message);
 class Program {
     static void Main() {
         // Write C# code here
-        Console.WriteLine("Hello World from OnlineGDB Compiler!");
+        Console.WriteLine("Hello World from CodeArena Compiler!");
     }
 }
 `,
@@ -111,7 +111,7 @@ import "fmt"
 
 func main() {
     // Write Go code here
-    fmt.Println("Hello World from OnlineGDB Compiler!")
+    fmt.Println("Hello World from CodeArena Compiler!")
 }
 `,
   },
@@ -122,7 +122,7 @@ func main() {
     ext: 'rs',
     template: `fn main() {
     // Write Rust code here
-    println!("Hello World from OnlineGDB Compiler!");
+    println!("Hello World from CodeArena Compiler!");
 }
 `,
   },
@@ -133,7 +133,7 @@ func main() {
     ext: 'php',
     template: `<?php
 // Write PHP code here
-echo "Hello World from OnlineGDB Compiler!\\n";
+echo "Hello World from CodeArena Compiler!\\n";
 ?>
 `,
   },

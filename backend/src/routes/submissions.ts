@@ -194,18 +194,20 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
 
     const { code, language, stdin } = runSchema.parse(req.body);
 
-    // Use exact pinned versions — Piston rejects '*' for some runtimes
-    const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
-      PYTHON:     { language: 'python',     version: '3.10.0' },
-      JAVA:       { language: 'java',       version: '15.0.2' },
-      CPP:        { language: 'c++',        version: '10.2.0' },
-      C:          { language: 'c',          version: '10.2.0' },
-      JAVASCRIPT: { language: 'javascript', version: '18.15.0' },
-      TYPESCRIPT: { language: 'typescript', version: '5.0.3' },
-      CSHARP:     { language: 'csharp',     version: '6.12.0' },
-      GO:         { language: 'go',         version: '1.16.2' },
-      RUST:       { language: 'rust',       version: '1.68.2' },
-      PHP:        { language: 'php',        version: '8.2.3' },
+    // Maps our language enum to Piston language/version/filename.
+    // The filename MUST include the correct extension — Piston uses it to pick the right compiler.
+    // Java filename must match the public class name (Main).
+    const LANGUAGE_MAP: Record<string, { language: string; version: string; filename: string }> = {
+      PYTHON:     { language: 'python',     version: '3.10.0',  filename: 'main.py'    },
+      JAVA:       { language: 'java',       version: '15.0.2',  filename: 'Main.java'  },
+      CPP:        { language: 'c++',        version: '10.2.0',  filename: 'main.cpp'   },
+      C:          { language: 'c',          version: '10.2.0',  filename: 'main.c'     },
+      JAVASCRIPT: { language: 'javascript', version: '18.15.0', filename: 'main.js'    },
+      TYPESCRIPT: { language: 'typescript', version: '5.0.3',   filename: 'main.ts'    },
+      CSHARP:     { language: 'csharp',     version: '6.12.0',  filename: 'main.cs'    },
+      GO:         { language: 'go',         version: '1.16.2',  filename: 'main.go'    },
+      RUST:       { language: 'rust',       version: '1.68.2',  filename: 'main.rs'    },
+      PHP:        { language: 'php',        version: '8.2.3',   filename: 'main.php'   },
     };
 
     const langConfig = LANGUAGE_MAP[language];
@@ -228,7 +230,9 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
         {
           language: langConfig.language,
           version: langConfig.version,
-          files: [{ name: 'main', content: code }],
+          // Filename with correct extension is required — Piston uses it to select the compiler.
+          // Java: filename must match the public class name (Main.java).
+          files: [{ name: langConfig.filename, content: code }],
           stdin,
           run_timeout: 8_000,
           compile_timeout: 15_000,
@@ -259,24 +263,36 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
     const runtimeMs = Date.now() - startTime;
     const result = response.data;
 
-    // Compile error
+    // Compile error — compiler produced errors before the program ran
     if (result.compile?.code !== 0 && result.compile?.stderr) {
       res.json({
         stdout: '',
         stderr: '',
         compileError: result.compile.stderr,
+        runtimeError: null,
         runtimeMs,
         exitCode: result.compile.code ?? 1,
       });
       return;
     }
 
+    const exitCode: number = result.run?.code ?? 0;
+    const stdout: string  = result.run?.stdout ?? '';
+    const stderr: string  = result.run?.stderr ?? '';
+
+    // Runtime error — program ran but crashed / exited non-zero
+    // Treat non-zero exit with stderr as a runtime error (distinct from normal stderr output)
+    const runtimeError: string | null =
+      exitCode !== 0 && stderr ? stderr : null;
+
     res.json({
-      stdout: result.run?.stdout ?? '',
-      stderr: result.run?.stderr ?? '',
+      stdout,
+      // Only pass stderr through when it's NOT a crash (e.g. deliberate print to stderr)
+      stderr: exitCode === 0 ? stderr : '',
       compileError: null,
+      runtimeError,   // populated only on crash / non-zero exit
       runtimeMs,
-      exitCode: result.run?.code ?? 0,
+      exitCode,
     });
   } catch (err: any) {
     logger.error('Run code error', { error: err?.message });
