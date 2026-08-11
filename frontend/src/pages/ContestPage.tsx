@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, SkipForward, ChevronRight, LogOut, Trophy, Zap, Code2, Terminal } from 'lucide-react';
+import { Clock, SkipForward, ChevronRight, LogOut, Trophy, Zap, Code2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useContest } from '../contexts/ContestContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import OnlineGDBCompiler from '../components/OnlineGDBCompiler';
-import { Link } from 'react-router-dom';
+
 
 function formatTime(ms: number): string {
   if (ms <= 0) return '00:00:00';
@@ -161,15 +161,6 @@ export default function ContestPage() {
             <Code2 className="w-4 h-4 text-white" />
           </div>
           <span className="font-bold text-white text-sm font-mono tracking-wide">CodeArena</span>
-
-          <Link
-            to="/compiler"
-            target="_blank"
-            className="text-xs text-emerald-400 hover:underline flex items-center gap-1 font-mono pl-2 border-l border-white/10"
-          >
-            <Terminal className="w-3 h-3" />
-            Standalone Compiler
-          </Link>
 
           {currentProblem && (
             <>

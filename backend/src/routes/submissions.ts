@@ -8,6 +8,7 @@ import { getSubmissionQueue, getQueueEvents } from '../workers/grading';
 import { saveDraftToRedis } from '../services/draftSaver';
 import { getContestState, getCurrentEventId } from '../services/contestState';
 import { getElapsedSeconds, getCurrentProblem } from '../services/problemAssigner';
+import { runCode } from '../services/judge0Runner';
 import { logger } from '../config/logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -178,9 +179,9 @@ const runSchema = z.object({
 
 /**
  * POST /submissions/run
- * Executes code with user-provided stdin via Piston. No submission created.
- * Rate-limited: 1 run per 5 seconds per user.
- * Returns stdout, stderr, compile errors, runtime ms.
+ * Executes code with user-provided stdin via Judge0 CE (free, no API key).
+ * Rate-limited: 1 run per 8 seconds per user.
+ * Returns stdout, stderr, compileError, runtimeError, runtimeMs, exitCode.
  */
 router.post('/run', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -194,108 +195,25 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
 
     const { code, language, stdin } = runSchema.parse(req.body);
 
-    // Maps our language enum to Piston language/version/filename.
-    // The filename MUST include the correct extension — Piston uses it to pick the right compiler.
-    // Java filename must match the public class name (Main).
-    const LANGUAGE_MAP: Record<string, { language: string; version: string; filename: string }> = {
-      PYTHON:     { language: 'python',     version: '3.10.0',  filename: 'main.py'    },
-      JAVA:       { language: 'java',       version: '15.0.2',  filename: 'Main.java'  },
-      CPP:        { language: 'c++',        version: '10.2.0',  filename: 'main.cpp'   },
-      C:          { language: 'c',          version: '10.2.0',  filename: 'main.c'     },
-      JAVASCRIPT: { language: 'javascript', version: '18.15.0', filename: 'main.js'    },
-      TYPESCRIPT: { language: 'typescript', version: '5.0.3',   filename: 'main.ts'    },
-      CSHARP:     { language: 'csharp',     version: '6.12.0',  filename: 'main.cs'    },
-      GO:         { language: 'go',         version: '1.16.2',  filename: 'main.go'    },
-      RUST:       { language: 'rust',       version: '1.68.2',  filename: 'main.rs'    },
-      PHP:        { language: 'php',        version: '8.2.3',   filename: 'main.php'   },
-    };
-
-    const langConfig = LANGUAGE_MAP[language];
-    if (!langConfig) {
-      res.status(400).json({ error: `Unsupported language: ${language}` });
-      return;
-    }
-
-    // Set cooldown BEFORE executing — blocks re-runs while code is executing
+    // Set cooldown BEFORE executing — prevents spam while code is running
     await redis.setex(runLimitKey, 8, '1');
 
-    const axios = (await import('axios')).default;
-    const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston';
-    const startTime = Date.now();
-
-    let response;
     try {
-      response = await axios.post(
-        `${pistonUrl}/execute`,
-        {
-          language: langConfig.language,
-          version: langConfig.version,
-          // Filename with correct extension is required — Piston uses it to select the compiler.
-          // Java: filename must match the public class name (Main.java).
-          files: [{ name: langConfig.filename, content: code }],
-          stdin,
-          run_timeout: 8_000,
-          compile_timeout: 15_000,
-          run_memory_limit: 128 * 1024 * 1024,
-        },
-        { timeout: 25_000 }
-      );
-    } catch (pistonErr: any) {
-      // Release cooldown so user can retry immediately
+      const result = await runCode(code, language, stdin);
+      res.json(result);
+    } catch (execErr: any) {
+      // Release cooldown so user can retry immediately on service error
       await redis.del(runLimitKey);
+      logger.error('Judge0 run error', { language, error: execErr?.message });
 
-      const status = pistonErr.response?.status;
-      const errMsg = pistonErr.response?.data?.message || pistonErr.message || 'unknown';
-      logger.error('Piston run error', { language, status, error: errMsg, code: pistonErr.code });
-
-      if (pistonErr.code === 'ECONNABORTED' || pistonErr.code === 'ETIMEDOUT') {
+      if (execErr?.message?.includes('timed out')) {
         res.status(503).json({ error: 'Execution timed out. Simplify your code or try again.' });
-      } else if (status === 429) {
-        res.status(429).json({ error: 'Execution service is busy. Please wait a few seconds and try again.' });
-      } else if (status === 400) {
-        res.status(400).json({ error: `Execution error: ${errMsg}` });
       } else {
-        res.status(503).json({ error: 'Execution service unavailable. Please try again in a moment.' });
+        res.status(503).json({ error: 'Execution service error. Please try again in a moment.' });
       }
-      return;
     }
-
-    const runtimeMs = Date.now() - startTime;
-    const result = response.data;
-
-    // Compile error — compiler produced errors before the program ran
-    if (result.compile?.code !== 0 && result.compile?.stderr) {
-      res.json({
-        stdout: '',
-        stderr: '',
-        compileError: result.compile.stderr,
-        runtimeError: null,
-        runtimeMs,
-        exitCode: result.compile.code ?? 1,
-      });
-      return;
-    }
-
-    const exitCode: number = result.run?.code ?? 0;
-    const stdout: string  = result.run?.stdout ?? '';
-    const stderr: string  = result.run?.stderr ?? '';
-
-    // Runtime error — program ran but crashed / exited non-zero
-    // Treat non-zero exit with stderr as a runtime error (distinct from normal stderr output)
-    const runtimeError: string | null =
-      exitCode !== 0 && stderr ? stderr : null;
-
-    res.json({
-      stdout,
-      // Only pass stderr through when it's NOT a crash (e.g. deliberate print to stderr)
-      stderr: exitCode === 0 ? stderr : '',
-      compileError: null,
-      runtimeError,   // populated only on crash / non-zero exit
-      runtimeMs,
-      exitCode,
-    });
   } catch (err: any) {
-    logger.error('Run code error', { error: err?.message });
+    logger.error('Run route error', { error: err?.message });
     res.status(500).json({ error: 'Code execution failed. Please try again.' });
   }
 });
