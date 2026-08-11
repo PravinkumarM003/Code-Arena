@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, SkipForward, ChevronRight, LogOut, Trophy, Zap, Code2 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useFullscreen } from '../hooks/useFullscreen';
+import { Clock, SkipForward, ChevronRight, Trophy, Zap, Code2 } from 'lucide-react';
 import { useContest } from '../contexts/ContestContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import api from '../lib/api';
@@ -18,7 +18,6 @@ function formatTime(ms: number): string {
 }
 
 export default function ContestPage() {
-  const { logout } = useAuth();
   const {
     contestState, remainingMs, currentProblem,
     currentDraft, ap, rank, submissionResult, isJudging, isLocked
@@ -30,8 +29,13 @@ export default function ContestPage() {
   const [currentLanguage, setCurrentLanguage] = useState('CPP');
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const isPaused = contestState === 'PAUSED';
+
   // Enable anti-cheat monitoring
   useAntiCheat(contestState === 'RUNNING' && !isLocked);
+
+  // Fullscreen enforcement: enter on RUNNING, exit on PAUSED/ENDED
+  useFullscreen(contestState === 'RUNNING' && !isPaused);
 
   // Skip lockout countdown
   useEffect(() => {
@@ -102,7 +106,7 @@ export default function ContestPage() {
     }
   };
 
-  const isPaused = contestState === 'PAUSED';
+  const isEnded = contestState === 'ENDED';
   const isTimeWarning = remainingMs < 5 * 60 * 1000 && remainingMs > 0;
 
   // While contest is running but problem hasn't loaded yet (gap between contest:started and session:restored)
@@ -213,9 +217,6 @@ export default function ContestPage() {
             </button>
           )}
 
-          <button onClick={logout} className="text-white/40 hover:text-red-400 transition-colors p-1" title="Log out">
-            <LogOut className="w-4 h-4" />
-          </button>
         </div>
       </header>
 
