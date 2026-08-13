@@ -18,6 +18,7 @@ import {
   softReset,
   getCurrentEventId,
   getEventHistory,
+  deleteAnnouncement,
 } from '../services/contestState';
 
 // Helper: broadcast contest state change using io attached to req
@@ -200,6 +201,18 @@ router.post('/announce', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+router.delete('/announce', async (req: Request, res: Response): Promise<void> => {
+  try {
+    await deleteAnnouncement();
+    const io = (req as any).io;
+    io.emit('contest:announcement', { message: null, timestamp: Date.now() });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete announcement' });
+  }
+});
+
 // ─── Manual Overrides ────────────────────────────────────────────────────────
 
 const overrideSchema = z.object({
@@ -234,6 +247,8 @@ router.post('/override', async (req: Request, res: Response): Promise<void> => {
       io.to(`user:${target.uid}`).emit('anticheat:locked', { message: `Disqualified: ${reason}` });
     } else if (action === 'REINSTATE') {
       await prisma.user.update({ where: { id: targetUserId }, data: { isDisqualified: false } });
+      const io = (req as any).io;
+      io.to(`user:${target.uid}`).emit('anticheat:unlocked');
     }
 
     await prisma.auditLog.create({
@@ -377,8 +392,18 @@ router.get('/monitor', async (_req: Request, res: Response): Promise<void> => {
       queue.getFailedCount(),
     ]);
 
+    const dbUsers = await prisma.user.findMany({
+      select: { id: true, isDisqualified: true }
+    });
+    const dqMap = new Map(dbUsers.map(u => [u.id, u.isDisqualified]));
+
+    const usersWithDq = users.map(u => ({
+      ...u,
+      isDisqualified: dqMap.get(u.userId) || false
+    }));
+
     res.json({
-      users,
+      users: usersWithDq,
       contestState: times.state,
       remainingMs: times.remainingMs,
       queueDepth: waiting + active,

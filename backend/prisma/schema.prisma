@@ -125,6 +125,7 @@ model Problem {
   timeBudget  Int         @default(30) // minutes allowed per problem
   isActive    Boolean     @default(true)
   orderIndex  Int         @default(0) // for ordering in the bank
+  baseAp      Int         @default(100) // base AP awarded for solving this problem
 
   // Starter code per language stored as JSON
   starterCode Json        @default("{}")

@@ -106,6 +106,7 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
       problemStatement: problem.statement,
       difficulty: problem.difficulty,
       timeBudget: problem.timeBudget,
+      baseAp: problem.baseAp,
       timeTakenSeconds,
       testCases: problem.testCases.map((tc) => ({
         id: tc.id,

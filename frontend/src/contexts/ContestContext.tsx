@@ -117,9 +117,11 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         toast.success('⏱ Contest time extended!');
       });
 
-      sock.on('contest:announcement', (data: { message: string }) => {
+      sock.on('contest:announcement', (data: { message: string | null }) => {
         setAnnouncement(data.message);
-        toast(data.message, { icon: '📢', duration: 10000 });
+        if (data.message) {
+          toast(data.message, { icon: '📢', duration: 10000 });
+        }
       });
 
       sock.on('contest:started', () => {
@@ -171,7 +173,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         if (result.passRatio === 1) {
           setTimeout(async () => {
             sock.emit('session:restore');
-          }, 2000);
+          }, 500);
         }
       });
 
@@ -199,6 +201,11 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       sock.on('anticheat:locked', (data: { message: string }) => {
         setIsLocked(true);
         toast.error(`🔒 ${data.message}`, { duration: Infinity });
+      });
+
+      sock.on('anticheat:unlocked', () => {
+        setIsLocked(false);
+        toast.success(`🔓 Account unlocked. You may resume.`);
       });
 
       // ── Reconnect: restore state from server ─────────────────────────
@@ -248,6 +255,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         sock.off('anticheat:warning');
         sock.off('anticheat:penalty');
         sock.off('anticheat:locked');
+        sock.off('anticheat:unlocked');
         sock.off('connect');
         sock.off('reconnect');
         sock.off('connect_error');

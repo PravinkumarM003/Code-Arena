@@ -41,26 +41,19 @@ export function getQueueEvents(): QueueEvents {
 // ─── AP Formula ─────────────────────────────────────────────────────────────
 
 function computeAP(
-  difficulty: string,
+  baseAp: number,
   testPassRatio: number,
   aiScore: number,
   timeTakenSeconds: number,
   maxTimeBudgetSeconds: number
 ): number {
-  const BASE: Record<string, number> = {
-    EASY: parseInt(process.env.AP_BASE_EASY || '100'),
-    MEDIUM: parseInt(process.env.AP_BASE_MEDIUM || '200'),
-    HARD: parseInt(process.env.AP_BASE_HARD || '350'),
-  };
-
   const AI_WEIGHT = parseFloat(process.env.AP_AI_WEIGHT || '0.3');
-  const basePoints = BASE[difficulty] || 100;
 
   // Speed multiplier: [0.5, 1.0] — penalises taking too long
   const speedMultiplier = Math.max(0.5, 1 - timeTakenSeconds / maxTimeBudgetSeconds);
 
-  // AP = (base * pass_ratio) + (ai_score * weight) * speed_mult
-  const ap = (basePoints * testPassRatio + aiScore * AI_WEIGHT * basePoints) * speedMultiplier;
+  // AP = (base * pass_ratio) + (ai_score * weight) * base_points
+  const ap = (baseAp * testPassRatio + aiScore * AI_WEIGHT * baseAp) * speedMultiplier;
 
   return Math.round(ap * 100) / 100; // Round to 2 decimal places
 }
@@ -79,6 +72,7 @@ export interface SubmissionJobData {
   problemStatement: string;
   difficulty: string;
   timeBudget: number; // minutes
+  baseAp: number;
   timeTakenSeconds: number;
   testCases: Array<{
     id: string;
@@ -186,7 +180,7 @@ export function startGradingWorker(io: any): Worker {
 
       // Step 4: Compute AP
       const apAwarded = computeAP(
-        data.difficulty,
+        data.baseAp,
         pistonResult.passRatio,
         aiScore,
         data.timeTakenSeconds,

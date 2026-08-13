@@ -67,6 +67,7 @@ const problemSchema = z.object({
   statement: z.string().min(1),
   difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']),
   timeBudget: z.number().int().min(5).max(120).default(30),
+  baseAp: z.number().int().min(1).default(100),
   starterCode: z.record(z.string()).default({}),
   testCases: z.array(
     z.object({
@@ -103,6 +104,7 @@ router.post('/', authMiddleware, adminOnly, async (req: Request, res: Response):
         statement: data.statement,
         difficulty: data.difficulty,
         timeBudget: data.timeBudget,
+        baseAp: data.baseAp,
         starterCode: data.starterCode,
         isActive: data.isActive,
         testCases: {
@@ -139,6 +141,7 @@ router.put('/:id', authMiddleware, adminOnly, async (req: Request, res: Response
         ...(data.statement && { statement: data.statement }),
         ...(data.difficulty && { difficulty: data.difficulty }),
         ...(data.timeBudget && { timeBudget: data.timeBudget }),
+        ...(data.baseAp !== undefined && { baseAp: data.baseAp }),
         ...(data.starterCode && { starterCode: data.starterCode }),
         ...(data.isActive !== undefined && { isActive: data.isActive }),
       },

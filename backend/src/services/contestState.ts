@@ -290,6 +290,11 @@ export async function setAnnouncement(message: string): Promise<void> {
   await redis.set(KEYS.ANNOUNCEMENT, JSON.stringify({ message, timestamp: Date.now() }));
 }
 
+export async function deleteAnnouncement(): Promise<void> {
+  const redis = getRedis();
+  await redis.del(KEYS.ANNOUNCEMENT);
+}
+
 export async function getAnnouncement(): Promise<{ message: string; timestamp: number } | null> {
   const redis = getRedis();
   const raw = await redis.get(KEYS.ANNOUNCEMENT);

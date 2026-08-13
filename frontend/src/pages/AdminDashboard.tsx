@@ -19,6 +19,7 @@ interface MonitorUser {
   rank: number;
   problemsSolved: number;
   currentProblemTitle?: string;
+  isDisqualified?: boolean;
 }
 
 interface InfraStats {
@@ -57,7 +58,7 @@ export default function AdminDashboard() {
   const [showProblemForm, setShowProblemForm] = useState(false);
   const [problemForm, setProblemForm] = useState({
     title: '', statement: '', difficulty: 'EASY' as const,
-    timeBudget: 30,
+    timeBudget: 30, baseAp: 100,
     starterCode: { PYTHON: '', JAVA: '', CPP: '', JAVASCRIPT: '' },
     testCases: [{ input: '', expectedOutput: '', isHidden: false, points: 1 }],
     isActive: true,
@@ -230,6 +231,16 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDeleteAnnouncement = async () => {
+    try {
+      await api.delete('/admin/announce');
+      toast.success('Announcement deleted');
+      setAnnouncement('');
+    } catch {
+      toast.error('Failed to delete announcement');
+    }
+  };
+
   const handleDisqualify = async (userId: string, name: string) => {
     const reason = prompt(`Reason for disqualifying ${name}?`);
     if (!reason) return;
@@ -239,6 +250,16 @@ export default function AdminDashboard() {
       fetchMonitor();
     } catch {
       toast.error('Failed to disqualify');
+    }
+  };
+
+  const handleUnlock = async (userId: string, name: string) => {
+    try {
+      await api.post('/admin/override', { targetUserId: userId, action: 'REINSTATE', reason: 'Admin unlock' });
+      toast.success(`${name} unlocked`);
+      fetchMonitor();
+    } catch {
+      toast.error('Failed to unlock');
     }
   };
 
@@ -266,7 +287,7 @@ export default function AdminDashboard() {
       setShowProblemForm(false);
       fetchProblems();
       setProblemForm({
-        title: '', statement: '', difficulty: 'EASY', timeBudget: 30,
+        title: '', statement: '', difficulty: 'EASY', timeBudget: 30, baseAp: 100,
         starterCode: { PYTHON: '', JAVA: '', CPP: '', JAVASCRIPT: '' },
         testCases: [{ input: '', expectedOutput: '', isHidden: false, points: 1 }],
         isActive: true,
@@ -505,10 +526,15 @@ export default function AdminDashboard() {
                 placeholder="Type an announcement to broadcast to all students..."
                 className="input h-24 resize-none mb-3"
               />
-              <button onClick={handleAnnounce} disabled={!announcement.trim()} className="btn-primary w-full justify-center disabled:opacity-40">
-                <Megaphone className="w-4 h-4" />
-                Broadcast Announcement
-              </button>
+              <div className="flex gap-2">
+                <button onClick={handleAnnounce} disabled={!announcement.trim()} className="btn-primary w-full justify-center disabled:opacity-40">
+                  <Megaphone className="w-4 h-4" />
+                  Broadcast
+                </button>
+                <button onClick={handleDeleteAnnouncement} className="btn-secondary px-3 text-red-400 hover:text-red-300 border-red-500/20 hover:bg-red-500/10">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             {/* Infra Health */}
@@ -625,13 +651,23 @@ export default function AdminDashboard() {
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
-                          <button
-                            onClick={() => handleDisqualify(u.userId, u.name)}
-                            title="Disqualify"
-                            className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                          </button>
+                          {u.isDisqualified ? (
+                            <button
+                              onClick={() => handleUnlock(u.userId, u.name)}
+                              title="Unlock Account"
+                              className="p-1.5 rounded-lg text-white/30 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            >
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleDisqualify(u.userId, u.name)}
+                              title="Disqualify"
+                              className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -669,7 +705,7 @@ export default function AdminDashboard() {
                       <label className="block text-xs text-white/40 mb-1">Title</label>
                       <input className="input" value={problemForm.title} onChange={(e) => setProblemForm(p => ({ ...p, title: e.target.value }))} placeholder="Problem title" />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs text-white/40 mb-1">Difficulty</label>
                         <select className="input" value={problemForm.difficulty} onChange={(e) => setProblemForm(p => ({ ...p, difficulty: e.target.value as any }))}>
@@ -681,6 +717,10 @@ export default function AdminDashboard() {
                       <div>
                         <label className="block text-xs text-white/40 mb-1">Time Budget (min)</label>
                         <input type="number" className="input" value={problemForm.timeBudget} onChange={(e) => setProblemForm(p => ({ ...p, timeBudget: parseInt(e.target.value) }))} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-white/40 mb-1">Base AP</label>
+                        <input type="number" className="input" value={problemForm.baseAp} onChange={(e) => setProblemForm(p => ({ ...p, baseAp: parseInt(e.target.value) }))} />
                       </div>
                     </div>
                   </div>
