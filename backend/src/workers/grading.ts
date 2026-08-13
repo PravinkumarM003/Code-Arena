@@ -205,7 +205,7 @@ export function startGradingWorker(io: any): Worker {
       // This prevents score manipulation via repeated re-submissions of the same problem.
       const eventId = data.eventId || await getCurrentEventId();
       const prevApKey = `submission:ap:${data.dbUserId}:${data.problemId}`;
-      const redis = getRedis();
+      // NOTE: Use the outer `redis` variable (declared above at worker init), do NOT redeclare.
       const prevApRaw = await redis.get(prevApKey);
       const prevAp = prevApRaw ? parseFloat(prevApRaw) : 0;
       const apDelta = Math.max(0, apAwarded - prevAp);

@@ -41,13 +41,15 @@ export default function ContestPage() {
   useEffect(() => {
     if (!currentProblem) return;
     const lockoutMs = 10 * 60 * 1000;
-    const elapsed = Date.now() - (currentProblem.assignedAt || Date.now());
+    // Capture assignedAt so the interval callback doesn't rely on a potentially-stale closure
+    const assignedAt = currentProblem.assignedAt || Date.now();
+    const elapsed = Date.now() - assignedAt;
     const remaining = Math.max(0, lockoutMs - elapsed);
     setSkipLockoutMs(remaining);
 
     if (remaining > 0) {
       const interval = setInterval(() => {
-        const newRemaining = Math.max(0, lockoutMs - (Date.now() - currentProblem.assignedAt));
+        const newRemaining = Math.max(0, lockoutMs - (Date.now() - assignedAt));
         setSkipLockoutMs(newRemaining);
         if (newRemaining <= 0) clearInterval(interval);
       }, 1000);

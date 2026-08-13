@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Trophy, Zap, Users, Clock, RefreshCw, Globe, ChevronDown } from 'lucide-react';
 import api from '../lib/api';
 import { getExistingSocket } from '../lib/socket';
@@ -55,16 +55,25 @@ export default function LeaderboardPage() {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
 
+  // Use a ref to always have the latest activeTab inside stable callbacks,
+  // avoiding stale-closure bugs in setInterval and socket handlers.
+  const activeTabRef = useRef<Tab>(activeTab);
+  useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
   const fetchEvents = useCallback(async () => {
     try {
       const res = await api.get('/leaderboard/events');
       setEvents(res.data.events || []);
-    } catch {}
+    } catch {
+      // Public page: user may not be logged in, fail silently
+    }
   }, []);
 
-  const fetchLeaderboard = useCallback(async (tab: Tab = activeTab) => {
+  // Stable function — reads the current tab from the ref so it never goes stale
+  const fetchLeaderboard = useCallback(async (tab?: Tab) => {
+    const targetTab = tab ?? activeTabRef.current;
     try {
-      const res = await api.get(`/leaderboard/top?event=${tab}&limit=50`);
+      const res = await api.get(`/leaderboard/top?event=${targetTab}&limit=50`);
       setData(res.data);
       setLastUpdated(Date.now());
     } catch (err) {
@@ -72,30 +81,30 @@ export default function LeaderboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, []); // stable — no deps needed because activeTabRef is a ref
 
   // Initial load
   useEffect(() => {
     fetchEvents();
     fetchLeaderboard('current');
-  }, []);
+  }, [fetchEvents, fetchLeaderboard]);
 
-  // Refetch when tab changes
+  // Refetch when tab changes, and poll every 5s
   useEffect(() => {
     setLoading(true);
     fetchLeaderboard(activeTab);
-    const interval = setInterval(() => fetchLeaderboard(activeTab), 5000);
+    const interval = setInterval(() => fetchLeaderboard(), 5000);
     return () => clearInterval(interval);
-  }, [activeTab]);
+  }, [activeTab, fetchLeaderboard]);
 
   // Listen for leaderboard:update socket event
   useEffect(() => {
     const socket = getExistingSocket();
     if (!socket) return;
-    const handler = () => fetchLeaderboard(activeTab);
+    const handler = () => fetchLeaderboard();
     socket.on('leaderboard:update', handler);
     return () => { socket.off('leaderboard:update', handler); };
-  }, [activeTab, fetchLeaderboard]);
+  }, [fetchLeaderboard]);
 
   const pastEvents = events.filter((e) => e.state === 'ENDED');
 
