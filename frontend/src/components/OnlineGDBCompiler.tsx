@@ -121,6 +121,14 @@ export default function OnlineGDBCompiler({
       const langObj = LANGUAGES.find(l => l.id === selectedLang);
       if (langObj) setCode(langObj.template);
     }
+
+    // Auto-populate STDIN from first visible problem test case if stdin is empty
+    if (problem?.testCases?.length && !stdinText) {
+      const firstInput = problem.testCases[0]?.input;
+      if (firstInput) {
+        setStdinText(firstInput);
+      }
+    }
   }, [problem?.id, draftCode]);
 
   // When language dropdown changes
@@ -781,14 +789,49 @@ export default function OnlineGDBCompiler({
 
                       {/* ── Runtime Error (program crashed) ─────────────── */}
                       {runResult.runtimeError && (
-                        <div className="bg-red-950/40 border border-red-500/40 rounded-lg overflow-hidden">
-                          <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border-b border-red-500/30">
-                            <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
-                            <span className="font-bold text-red-300 text-[11px] tracking-wide uppercase">Runtime Error — Process exited with code {runResult.exitCode}</span>
+                        <div className="space-y-2">
+                          {/* Input diagnostic helper if error looks like missing stdin */}
+                          {(/EOFError|NoSuchElementException|NullPointerException|Scanner|input\(\)|cin|getline|scanf|EOF|End of file/i.test(runResult.runtimeError) || !stdinText.trim()) && (
+                            <div className="bg-amber-950/30 border border-amber-500/40 rounded-lg p-3 text-amber-200">
+                              <div className="flex items-center gap-2 font-bold text-xs text-amber-300 mb-1">
+                                <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                <span>Input (STDIN) Required / EOF Error</span>
+                              </div>
+                              <p className="text-[11px] text-amber-300/80 leading-normal">
+                                Your program crashed while waiting for user input, but STDIN was empty or exhausted.
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2 mt-2 pt-1 border-t border-amber-500/20">
+                                <button
+                                  onClick={() => setActiveTab('stdin')}
+                                  className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-bold text-[11px] border border-amber-500/30 transition-colors"
+                                >
+                                  Go to STDIN Input Tab →
+                                </button>
+                                {problem?.testCases?.map((tc, idx) => (
+                                  <button
+                                    key={tc.id || idx}
+                                    onClick={() => {
+                                      setStdinText(tc.input);
+                                      toast.success(`Loaded sample ${idx + 1} into STDIN`);
+                                    }}
+                                    className="px-2.5 py-1 rounded bg-white/10 hover:bg-white/15 text-white/90 text-[11px] border border-white/15 transition-colors"
+                                  >
+                                    Load Sample {idx + 1}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="bg-red-950/40 border border-red-500/40 rounded-lg overflow-hidden">
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border-b border-red-500/30">
+                              <XCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                              <span className="font-bold text-red-300 text-[11px] tracking-wide uppercase">Runtime Error — Process exited with code {runResult.exitCode}</span>
+                            </div>
+                            <pre className="text-red-300 whitespace-pre-wrap break-words p-3 leading-relaxed">
+                              {runResult.runtimeError}
+                            </pre>
                           </div>
-                          <pre className="text-red-300 whitespace-pre-wrap break-words p-3 leading-relaxed">
-                            {runResult.runtimeError}
-                          </pre>
                         </div>
                       )}
 
@@ -829,16 +872,30 @@ export default function OnlineGDBCompiler({
               {/* STDIN Tab */}
               {activeTab === 'stdin' && (
                 <div className="h-full flex flex-col">
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                     <span className="text-white/50 text-[11px]">
                       Enter inputs below (separated by newlines) to pass into standard input:
                     </span>
-                    <button
-                      onClick={() => setStdinText('')}
-                      className="text-[11px] text-white/40 hover:text-red-400"
-                    >
-                      Clear STDIN
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {problem?.testCases?.map((tc, idx) => (
+                        <button
+                          key={tc.id || idx}
+                          onClick={() => {
+                            setStdinText(tc.input);
+                            toast.success(`Loaded sample test ${idx + 1}`);
+                          }}
+                          className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-colors"
+                        >
+                          + Sample {idx + 1}
+                        </button>
+                      ))}
+                      <button
+                        onClick={() => setStdinText('')}
+                        className="text-[11px] text-white/40 hover:text-red-400 transition-colors"
+                      >
+                        Clear STDIN
+                      </button>
+                    </div>
                   </div>
                   <textarea
                     value={stdinText}

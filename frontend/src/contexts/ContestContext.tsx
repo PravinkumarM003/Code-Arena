@@ -141,6 +141,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         draft: { code: string; language: string } | null;
         ap: number;
         rank: number;
+        isLocked?: boolean;
       }) => {
         setContestState(data.state);
         setRemainingMs(data.remainingMs);
@@ -149,6 +150,9 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         setCurrentDraft(data.draft);
         setAp(data.ap);
         setRank(data.rank);
+        if (data.isLocked !== undefined) {
+          setIsLocked(data.isLocked);
+        }
       });
 
       // ── Submission Events ────────────────────────────────────────────
@@ -205,7 +209,9 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
 
       sock.on('anticheat:unlocked', () => {
         setIsLocked(false);
+        toast.dismiss();
         toast.success(`🔓 Account unlocked. You may resume.`);
+        sock.emit('session:restore');
       });
 
       // ── Reconnect: restore state from server ─────────────────────────

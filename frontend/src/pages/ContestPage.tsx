@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useFullscreen } from '../hooks/useFullscreen';
-import { Clock, SkipForward, ChevronRight, Trophy, Zap, Code2 } from 'lucide-react';
+import { Clock, SkipForward, ChevronRight, Trophy, Zap, Code2, Maximize2 } from 'lucide-react';
 import { useContest } from '../contexts/ContestContext';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import api from '../lib/api';
@@ -35,7 +35,7 @@ export default function ContestPage() {
   useAntiCheat(contestState === 'RUNNING' && !isLocked);
 
   // Fullscreen enforcement: enter on RUNNING, exit on PAUSED/ENDED
-  useFullscreen(contestState === 'RUNNING' && !isPaused);
+  const { isFullscreen, enterFullscreen } = useFullscreen(contestState === 'RUNNING' && !isPaused);
 
   // Skip lockout countdown
   useEffect(() => {
@@ -157,6 +157,26 @@ export default function ContestPage() {
             <h2 className="text-3xl font-black text-red-400 mb-2">Account Locked</h2>
             <p className="text-white/50">Please contact the administrator.</p>
           </div>
+        </div>
+      )}
+
+      {/* Fullscreen Required Overlay */}
+      {!isFullscreen && contestState === 'RUNNING' && !isPaused && !isLocked && (
+        <div className="fixed inset-0 z-[100] bg-[#0a0f1a]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-fade-in select-none">
+          <div className="w-20 h-20 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mb-6 shadow-2xl shadow-emerald-500/20 animate-pulse">
+            <Maximize2 className="w-10 h-10 text-emerald-400" />
+          </div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-2">Fullscreen Mode Required</h2>
+          <p className="text-white/60 text-sm sm:text-base max-w-md mb-6">
+            CodeArena requires fullscreen mode for secure contest operation. Click the button below to enter fullscreen and continue.
+          </p>
+          <button
+            onClick={enterFullscreen}
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg shadow-emerald-500/30 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+          >
+            <Maximize2 className="w-4 h-4" />
+            Enter Fullscreen Mode
+          </button>
         </div>
       )}
 

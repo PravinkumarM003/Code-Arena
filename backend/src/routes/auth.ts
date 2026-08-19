@@ -66,6 +66,7 @@ router.post('/login', async (req: Request, res: Response) => {
       name: user.name,
       rollNumber: user.rollNumber,
       isAdmin: user.isAdmin,
+      isDisqualified: user.isDisqualified,
       ap: user.ap,
     });
   } catch (err) {

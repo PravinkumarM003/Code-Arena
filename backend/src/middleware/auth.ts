@@ -13,6 +13,7 @@ declare global {
         email: string;
         isAdmin: boolean;
         dbUserId: string;
+        isDisqualified?: boolean;
       };
     }
   }
@@ -86,6 +87,7 @@ export async function authMiddleware(
       email,
       isAdmin: user.isAdmin || decoded.admin === true,
       dbUserId: user.id,
+      isDisqualified: user.isDisqualified,
     };
 
     next();
@@ -102,6 +104,17 @@ export async function authMiddleware(
 export function adminOnly(req: Request, res: Response, next: NextFunction): void {
   if (!req.user?.isAdmin) {
     res.status(403).json({ error: 'Admin access required' });
+    return;
+  }
+  next();
+}
+
+/**
+ * Active (non-disqualified) user guard — prevents locked users from submitting/skipping.
+ */
+export function requireActiveUser(req: Request, res: Response, next: NextFunction): void {
+  if (req.user?.isDisqualified && !req.user?.isAdmin) {
+    res.status(403).json({ error: 'Account is locked. Please contact the administrator.' });
     return;
   }
   next();

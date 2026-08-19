@@ -14,8 +14,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
-// All submission routes require auth
+// All submission routes require auth and active (unlocked) status
 router.use(authMiddleware);
+router.use(requireActiveUser);
 
 // ─── Submit Code ─────────────────────────────────────────────────────────────
 

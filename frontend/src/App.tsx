@@ -43,10 +43,31 @@ function PageLoader() {
  */
 function ContestRouter() {
   const { isAdmin } = useAuth();
-  const { contestState } = useContest();
+  const { contestState, isLocked } = useContest();
 
   if (isAdmin) {
     return <AdminDashboard />;
+  }
+
+  if (isLocked) {
+    return (
+      <div className="min-h-screen bg-[#0a0f1a] flex flex-col items-center justify-center p-6 text-center select-none">
+        <div className="w-24 h-24 rounded-3xl bg-red-500/10 border border-red-500/30 flex items-center justify-center mb-6 shadow-2xl shadow-red-500/20 animate-pulse">
+          <span className="text-5xl">🔒</span>
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">Account Locked</h1>
+        <p className="text-red-400 font-medium text-base sm:text-lg max-w-md mb-2">
+          Your account has been locked due to security violations or administrative action.
+        </p>
+        <p className="text-white/40 text-sm max-w-sm mb-8">
+          Please contact the event administrator to unlock your account. Once unlocked, your screen will resume automatically.
+        </p>
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white/50 text-xs font-mono">
+          <span className="w-2 h-2 rounded-full bg-red-400 animate-ping" />
+          Awaiting administrator unlock...
+        </div>
+      </div>
+    );
   }
 
   switch (contestState) {

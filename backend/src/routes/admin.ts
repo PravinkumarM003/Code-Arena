@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { authMiddleware, adminOnly } from '../middleware/auth';
+import { getRedis } from '../config/redis';
 import {
   startContest,
   pauseContest,
@@ -247,6 +248,8 @@ router.post('/override', async (req: Request, res: Response): Promise<void> => {
       io.to(`user:${target.uid}`).emit('anticheat:locked', { message: `Disqualified: ${reason}` });
     } else if (action === 'REINSTATE') {
       await prisma.user.update({ where: { id: targetUserId }, data: { isDisqualified: false } });
+      const redis = getRedis();
+      await redis.del(`anticheat:count:${target.uid}`);
       const io = (req as any).io;
       io.to(`user:${target.uid}`).emit('anticheat:unlocked');
     }

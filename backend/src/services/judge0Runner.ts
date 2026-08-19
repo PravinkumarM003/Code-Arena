@@ -120,6 +120,20 @@ async function runOnce(
   throw new Error('Execution timed out waiting for Judge0 result');
 }
 
+/** Preprocess code before sending to Judge0 compiler (e.g. normalize Java class name to Main) */
+function preprocessCode(code: string, language: string): string {
+  if (language.toUpperCase() === 'JAVA') {
+    if (!/\bpublic\s+class\s+Main\b/.test(code)) {
+      if (/\bpublic\s+class\s+([A-Za-z0-9_$]+)/.test(code)) {
+        return code.replace(/\bpublic\s+class\s+([A-Za-z0-9_$]+)/, 'public class Main');
+      } else if (/\bclass\s+Main\b/.test(code)) {
+        return code.replace(/\bclass\s+Main\b/, 'public class Main');
+      }
+    }
+  }
+  return code;
+}
+
 // ─── Public API used by /run route ───────────────────────────────────────────
 
 export interface RunResult {
@@ -139,7 +153,10 @@ export async function runCode(
   const lang = LANGUAGE_MAP[language.toUpperCase()];
   if (!lang) throw new Error(`Unsupported language: ${language}`);
 
-  const result = await runOnce(lang.id, code, stdin);
+  const preparedCode = preprocessCode(code, language);
+  const preparedStdin = (stdin || '').replace(/\r\n/g, '\n');
+
+  const result = await runOnce(lang.id, preparedCode, preparedStdin);
 
   // Compile error
   if (result.statusId === STATUS.COMPILE_ERR) {
@@ -200,12 +217,14 @@ export async function executeCode(
   const lang = LANGUAGE_MAP[language.toUpperCase()];
   if (!lang) throw new Error(`Unsupported language: ${language}`);
 
+  const preparedCode = preprocessCode(code, language);
   const testResults: TestCaseResult[] = [];
   let totalRuntimeMs = 0;
 
   for (const tc of testCases) {
     try {
-      const result = await runOnce(lang.id, code, tc.input);
+      const preparedInput = (tc.input || '').replace(/\r\n/g, '\n');
+      const result = await runOnce(lang.id, preparedCode, preparedInput);
       totalRuntimeMs += result.runtimeMs;
 
       // Compile error — stop testing immediately

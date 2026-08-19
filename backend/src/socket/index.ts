@@ -30,6 +30,7 @@ async function authenticateSocket(socket: Socket): Promise<{
   dbUserId: string;
   name: string;
   rollNumber: string;
+  isDisqualified: boolean;
 } | null> {
   const token = socket.handshake.auth?.token;
   if (!token) return null;
@@ -38,7 +39,10 @@ async function authenticateSocket(socket: Socket): Promise<{
     const decoded = await admin.auth().verifyIdToken(token);
     const email = decoded.email || '';
 
-    if (!email.endsWith(`@${COLLEGE_DOMAIN}`)) return null;
+    const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
+    const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
+
+    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) return null;
 
     const user = await prisma.user.findUnique({ where: { uid: decoded.uid } });
     if (!user) return null;
@@ -46,10 +50,11 @@ async function authenticateSocket(socket: Socket): Promise<{
     return {
       uid: decoded.uid,
       email,
-      isAdmin: user.isAdmin || decoded.admin === true,
+      isAdmin: user.isAdmin || decoded.admin === true || isAdminEmail,
       dbUserId: user.id,
       name: user.name,
       rollNumber: user.rollNumber,
+      isDisqualified: user.isDisqualified,
     };
   } catch {
     return null;
@@ -79,7 +84,7 @@ export function setupSocketHandlers(io: SocketServer): void {
       return;
     }
 
-    const { uid, dbUserId, name, rollNumber, isAdmin } = user;
+    const { uid, dbUserId, name, rollNumber, isAdmin, isDisqualified } = user;
 
     // Join user-specific room (for targeted events)
     socket.join(`user:${uid}`);
@@ -103,7 +108,12 @@ export function setupSocketHandlers(io: SocketServer): void {
     // Broadcast updated connection count to WAITING screen
     io.emit('contest:connected', { count: contestantCount });
 
-    logger.info('Socket connected', { uid, name, connected: contestantCount });
+    logger.info('Socket connected', { uid, name, connected: contestantCount, isDisqualified });
+
+    // If account is currently locked, inform client immediately
+    if (isDisqualified && !isAdmin) {
+      socket.emit('anticheat:locked', { message: 'Account locked due to violations. Please contact the administrator.' });
+    }
 
     // ── Send current state to newly connected client ──────────────────────
 
@@ -166,9 +176,8 @@ export function setupSocketHandlers(io: SocketServer): void {
           socket.emit('anticheat:penalty', { message: 'AP penalty applied for repeated violations.', newAP: penalizedAP });
         } else if (count >= 3) {
           // Auto-submit current problem and lock account
-          socket.emit('anticheat:locked', { message: 'Account locked due to multiple violations. Current problem auto-submitted.' });
           await prisma.user.update({ where: { id: dbUserId }, data: { isDisqualified: true } });
-          socket.disconnect();
+          socket.emit('anticheat:locked', { message: 'Account locked due to multiple violations. Current problem auto-submitted.' });
         }
 
         // Notify admin dashboard
@@ -199,7 +208,7 @@ export function setupSocketHandlers(io: SocketServer): void {
 
 /**
  * Restore a student's full session state on connect or reconnect.
- * Sends: current problem, code draft, remaining time, AP, rank.
+ * Sends: current problem, code draft, remaining time, AP, rank, isLocked.
  */
 async function handleSessionRestore(
   socket: Socket,
@@ -209,11 +218,23 @@ async function handleSessionRestore(
   remainingMs: number
 ): Promise<void> {
   try {
-    const [problem, times, eventId] = await Promise.all([
+    const [dbUser, problem, times, eventId] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: dbUserId },
+        select: { isDisqualified: true, isAdmin: true },
+      }),
       getCurrentProblem(dbUserId),
       getContestTimes(),
       getCurrentEventId(),
     ]);
+
+    const isLocked = Boolean(dbUser?.isDisqualified && !dbUser?.isAdmin);
+
+    if (isLocked) {
+      socket.emit('anticheat:locked', {
+        message: 'Account locked due to violations. Please contact the administrator.',
+      });
+    }
 
     const [ap, rank] = await Promise.all([
       getUserAP(dbUserId, eventId),
@@ -222,7 +243,7 @@ async function handleSessionRestore(
 
     // Get code draft if there is a current problem
     let draft = null;
-    if (problem) {
+    if (problem && !isLocked) {
       draft = await getDraftFromRedis(dbUserId, problem.id);
     }
 
@@ -230,11 +251,12 @@ async function handleSessionRestore(
       state,
       remainingMs,
       endTime: times.endTime,   // required for client-side countdown timer
-      problem,
+      problem: isLocked ? null : problem,
       draft,
       ap,
       rank,
       eventId,
+      isLocked,
     });
   } catch (err) {
     logger.error('Session restore error', { uid, error: err });

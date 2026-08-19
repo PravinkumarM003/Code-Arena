@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware, adminOnly } from '../middleware/auth';
+import { authMiddleware, adminOnly, requireActiveUser } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 
@@ -16,7 +16,7 @@ const router = Router();
  * Returns only the student's currently assigned problem.
  * Never returns the full problem bank.
  */
-router.get('/current', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+router.get('/current', authMiddleware, requireActiveUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const { getCurrentProblem } = await import('../services/problemAssigner');
     const problem = await getCurrentProblem(req.user!.dbUserId);
@@ -35,7 +35,7 @@ router.get('/current', authMiddleware, async (req: Request, res: Response): Prom
 
 // ─── Skip problem (student) ──────────────────────────────────────────────────
 
-router.post('/skip', authMiddleware, async (req: Request, res: Response): Promise<void> => {
+router.post('/skip', authMiddleware, requireActiveUser, async (req: Request, res: Response): Promise<void> => {
   try {
     const schema = z.object({ problemId: z.string() });
     const { problemId } = schema.parse(req.body);
