@@ -9,8 +9,9 @@ import {
   getUserAPOverall,
   getCombinedTotal,
   getParticipantCount,
+  getTeamLeaderboard,
 } from '../services/leaderboard';
-import { getContestTimes, getCurrentEventId, getEventHistory } from '../services/contestState';
+import { getContestTimes, getCurrentEventId, getEventHistory, getContestMode } from '../services/contestState';
 import { prisma } from '../config/database';
 
 const router = Router();
@@ -42,6 +43,15 @@ router.get('/top', async (req: Request, res: Response): Promise<void> => {
       leaderboardType = 'event';
     }
 
+    // Check if this event is in GROUP mode
+    const mode = await getContestMode();
+
+    // If GROUP mode and not overall, also return team leaderboard
+    let teamLeaderboard = null;
+    if (mode === 'GROUP' && leaderboardType !== 'overall') {
+      teamLeaderboard = await getTeamLeaderboard(eventId, limit);
+    }
+
     const [entries, total, count, times] = await Promise.all([
       leaderboardType === 'overall' ? getTopNOverall(limit) : getTopN(limit, eventId),
       getCombinedTotal(leaderboardType === 'overall' ? null : eventId),
@@ -51,12 +61,14 @@ router.get('/top', async (req: Request, res: Response): Promise<void> => {
 
     res.json({
       leaderboard: entries,
+      teamLeaderboard,
       combinedTotal: total,
       participantCount: count,
       contestState: times.state,
       remainingMs: times.remainingMs,
       currentEventId: eventId,
       leaderboardType,
+      mode,
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch leaderboard' });
@@ -129,8 +141,22 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
           orderBy: { submittedAt: 'asc' },
         },
         eventParticipants: {
-          include: { event: { select: { name: true } } },
+          include: { event: { select: { name: true, mode: true } } },
           orderBy: { joinedAt: 'asc' },
+        },
+        teamMembers: {
+          where: { status: 'ACCEPTED' },
+          include: {
+            team: {
+              include: {
+                captain: { select: { name: true } },
+                members: {
+                  where: { status: 'ACCEPTED' },
+                  include: { user: { select: { id: true, name: true } } },
+                },
+              },
+            },
+          },
         },
       },
     });
@@ -140,10 +166,22 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
       return;
     }
 
-    const [rank, rankOverall] = await Promise.all([
+    const [rank, rankOverall, mode] = await Promise.all([
       getUserRank(req.user!.dbUserId, await getCurrentEventId()),
       getUserRankOverall(req.user!.dbUserId),
+      getContestMode(),
     ]);
+
+    // Get team info if user is in a team
+    const teamMembership = user.teamMembers[0];
+    const teamInfo = teamMembership ? {
+      teamName: teamMembership.team.name,
+      captainName: teamMembership.team.captain.name,
+      members: teamMembership.team.members.map((m: { user: { id: string; name: string } }) => ({
+        userId: m.user.id,
+        name: m.user.name,
+      })),
+    } : null;
 
     res.json({
       name: user.name,
@@ -152,17 +190,19 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
       rank: rankOverall,       // overall rank
       currentEventRank: rank,
       problemsSolved: user.solvedProblems.length,
-      solvedProblems: user.solvedProblems.map((sp) => ({
+      solvedProblems: user.solvedProblems.map((sp: { problem: { title: string; difficulty: string }; solvedAt: Date }) => ({
         title: sp.problem.title,
         difficulty: sp.problem.difficulty,
         solvedAt: sp.solvedAt,
       })),
       submissions: user.submissions,
-      events: user.eventParticipants.map((ep) => ({
+      events: user.eventParticipants.map((ep: { eventId: string; event: { name: string }; apEarned: number }) => ({
         eventId: ep.eventId,
         eventName: ep.event.name,
         apEarned: ep.apEarned,
       })),
+      mode,
+      team: teamInfo,
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch results' });

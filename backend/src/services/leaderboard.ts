@@ -1,5 +1,6 @@
 import { getRedis } from '../config/redis';
 import { logger } from '../config/logger';
+import { prisma } from '../config/database';
 
 // Redis sorted set keys
 // Per-event: leaderboard:event:{eventId}
@@ -26,6 +27,17 @@ export interface LeaderboardEntry {
   currentProblemTitle?: string;
   lastSubmitTime?: number;
 }
+
+export interface TeamLeaderboardEntry {
+  teamId: string;
+  teamName: string;
+  captainName: string;
+  members: Array<{ userId: string; name: string; ap: number; problemsSolved: number }>;
+  totalAP: number;
+  totalProblemsSolved: number;
+  rank: number;
+}
+
 
 // ─── Score Updates ────────────────────────────────────────────────────────────
 
@@ -324,4 +336,78 @@ export async function getAllUsers(): Promise<LeaderboardEntry[]> {
       lastSubmitTime: meta.lastSubmitTime,
     };
   });
+}
+
+// ─── Team Leaderboard ─────────────────────────────────────────────────────────
+
+/**
+ * Get a team-based leaderboard for GROUP mode events.
+ * Aggregates individual member AP from Redis into team totals.
+ */
+export async function getTeamLeaderboard(eventId: string | null, limit: number = 50): Promise<TeamLeaderboardEntry[]> {
+  const redis = getRedis();
+
+  // Get all teams with their members from DB
+  const whereClause = eventId ? { eventId } : {};
+  const teams = await prisma.team.findMany({
+    where: whereClause,
+    include: {
+      captain: { select: { id: true, name: true } },
+      members: {
+        where: { status: 'ACCEPTED' },
+        include: { user: { select: { id: true, name: true } } },
+      },
+    },
+  });
+
+  const entries: TeamLeaderboardEntry[] = [];
+
+  for (const team of teams) {
+    let totalAP = 0;
+    let totalProblemsSolved = 0;
+    const memberDetails: TeamLeaderboardEntry['members'] = [];
+
+    for (const member of team.members) {
+      // Get this member's AP from Redis
+      let memberAP = 0;
+      if (eventId) {
+        const ap = await redis.get(EVENT_AP_KEY(eventId, member.userId));
+        memberAP = ap ? parseFloat(ap) : 0;
+      } else {
+        const ap = await redis.get(OVERALL_AP_KEY(member.userId));
+        memberAP = ap ? parseFloat(ap) : 0;
+      }
+
+      // Get problems solved from meta
+      const metaRaw = await redis.get(USER_META_KEY(member.userId));
+      const meta = metaRaw ? JSON.parse(metaRaw) : {};
+      const solved = meta.problemsSolved || 0;
+
+      totalAP += memberAP;
+      totalProblemsSolved += solved;
+
+      memberDetails.push({
+        userId: member.userId,
+        name: member.user.name,
+        ap: memberAP,
+        problemsSolved: solved,
+      });
+    }
+
+    entries.push({
+      teamId: team.id,
+      teamName: team.name,
+      captainName: team.captain.name,
+      members: memberDetails,
+      totalAP,
+      totalProblemsSolved,
+      rank: 0,
+    });
+  }
+
+  // Sort by total AP desc
+  entries.sort((a, b) => b.totalAP - a.totalAP);
+
+  // Assign ranks and limit
+  return entries.slice(0, limit).map((e, idx) => ({ ...e, rank: idx + 1 }));
 }

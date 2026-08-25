@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { authMiddleware } from '../middleware/auth';
+import { authMiddleware, requireActiveUser } from '../middleware/auth';
 import { prisma } from '../config/database';
-import { Prisma } from '@prisma/client';
 import { getRedis } from '../config/redis';
 import { getSubmissionQueue, getQueueEvents } from '../workers/grading';
 import { saveDraftToRedis } from '../services/draftSaver';
@@ -75,20 +74,19 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
     // Create submission record in TiDB (linked to current event)
     const eventId = await getCurrentEventId();
 
-    // Explicitly typed as SubmissionUncheckedCreateInput so TypeScript resolves
-    // eventId directly — avoids the Without<> union ambiguity in the IDE.
-    const submissionData: Prisma.SubmissionUncheckedCreateInput = {
-      id: submissionId,
-      userId: req.user!.dbUserId,
-      problemId,
-      eventId: eventId ?? null,
-      code,
-      language,
-      status: 'PENDING',
-      timeTakenSeconds,
-      jobId: null,
-    };
-    await prisma.submission.create({ data: submissionData });
+    await prisma.submission.create({
+      data: {
+        id: submissionId,
+        userId: req.user!.dbUserId,
+        problemId,
+        eventId: eventId ?? null,
+        code,
+        language,
+        status: 'PENDING',
+        timeTakenSeconds,
+        jobId: null,
+      },
+    });
 
     // Set active submission lock (expires in 60s to prevent stuck locks)
     await redis.setex(rateLimitKey, 60, '1');
@@ -109,7 +107,7 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
       timeBudget: problem.timeBudget,
       baseAp: problem.baseAp,
       timeTakenSeconds,
-      testCases: problem.testCases.map((tc) => ({
+      testCases: problem.testCases.map((tc: { id: string; input: string; expectedOutput: string; isHidden: boolean; points: number }) => ({
         id: tc.id,
         input: tc.input,
         expectedOutput: tc.expectedOutput,

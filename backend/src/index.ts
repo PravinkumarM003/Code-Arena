@@ -21,6 +21,7 @@ import problemsRouter from './routes/problems';
 import submissionsRouter from './routes/submissions';
 import leaderboardRouter from './routes/leaderboard';
 import resultsRouter from './routes/results';
+import teamsRouter from './routes/teams';
 
 // ─── Initialize External Services ───────────────────────────────────────────
 
@@ -96,6 +97,7 @@ app.use('/problems', problemsRouter);
 app.use('/submissions', submissionsRouter);
 app.use('/leaderboard', leaderboardRouter);
 app.use('/results', resultsRouter);
+app.use('/teams', teamsRouter);
 
 // 404 handler
 app.use((_req, res) => {

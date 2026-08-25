@@ -14,12 +14,24 @@ interface LeaderboardEntry {
 
 interface LeaderboardData {
   leaderboard: LeaderboardEntry[];
+  teamLeaderboard: TeamLeaderboardEntry[] | null;
   combinedTotal: number;
   participantCount: number;
   contestState: string;
   remainingMs: number;
   leaderboardType: 'event' | 'overall';
   currentEventId: string | null;
+  mode?: 'INDIVIDUAL' | 'GROUP';
+}
+
+interface TeamLeaderboardEntry {
+  teamId: string;
+  teamName: string;
+  captainName: string;
+  members: Array<{ userId: string; name: string; ap: number; problemsSolved: number }>;
+  totalAP: number;
+  totalProblemsSolved: number;
+  rank: number;
 }
 
 interface EventSummary {
@@ -54,6 +66,7 @@ export default function LeaderboardPage() {
   const [showEventDropdown, setShowEventDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(Date.now());
+  const [viewMode, setViewMode] = useState<'individual' | 'team'>('individual');
 
   // Use a ref to always have the latest activeTab inside stable callbacks,
   // avoiding stale-closure bugs in setInterval and socket handlers.
@@ -245,7 +258,105 @@ export default function LeaderboardPage() {
           </div>
         )}
 
-        {/* Leaderboard entries */}
+        {/* Team/Individual Toggle (only in GROUP mode) */}
+        {data?.mode === 'GROUP' && activeTab !== 'overall' && (
+          <div className="flex items-center gap-2 mb-4">
+            <div className="flex bg-white/5 rounded-lg p-0.5">
+              <button
+                onClick={() => setViewMode('team')}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                  viewMode === 'team'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-white/40 hover:text-white/70'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                Teams
+              </button>
+              <button
+                onClick={() => setViewMode('individual')}
+                className={`px-4 py-2 rounded-md text-sm font-semibold transition-all ${
+                  viewMode === 'individual'
+                    ? 'bg-brand-600 text-white shadow-sm'
+                    : 'text-white/40 hover:text-white/70'
+                }`}
+              >
+                Individual
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Team Leaderboard */}
+        {viewMode === 'team' && data?.teamLeaderboard && data.teamLeaderboard.length > 0 && (
+          <div className="space-y-3">
+            {data.teamLeaderboard.map((team, idx) => {
+              const style = RANK_STYLES[team.rank];
+              return (
+                <div
+                  key={team.teamId}
+                  className={`relative p-5 rounded-2xl border transition-all duration-300 animate-slide-up
+                    ${style ? `${style.bg} ${style.border}` : 'glass-card'}`}
+                  style={{ animationDelay: `${idx * 0.05}s` }}
+                >
+                  <div className="flex items-center gap-4 mb-3">
+                    {/* Rank */}
+                    <div className="flex-shrink-0 w-12 text-center">
+                      {style ? (
+                        <span className="text-3xl">{style.medal}</span>
+                      ) : (
+                        <span className="text-xl font-black text-white/40">#{team.rank}</span>
+                      )}
+                    </div>
+
+                    {/* Team Name + Captain */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`font-bold text-lg truncate ${style ? style.text : 'text-white'}`}>
+                        {team.teamName}
+                      </p>
+                      <p className="text-white/30 text-xs">Captain: {team.captainName}</p>
+                    </div>
+
+                    {/* Problems solved */}
+                    <div className="text-center flex-shrink-0">
+                      <p className="text-white font-bold">{team.totalProblemsSolved}</p>
+                      <p className="text-white/30 text-xs">solved</p>
+                    </div>
+
+                    {/* AP */}
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-2xl font-black ${style ? style.text : 'ap-glow'}`}>
+                        {team.totalAP.toFixed(0)}
+                      </p>
+                      <p className="text-white/30 text-xs">team AP</p>
+                    </div>
+                  </div>
+
+                  {/* Team Members */}
+                  <div className="flex flex-wrap gap-2 ml-16">
+                    {team.members.map((m) => (
+                      <div key={m.userId} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-white/50 text-xs">
+                        <div className="w-4 h-4 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
+                          <span className="text-white text-[8px] font-bold">{m.name.charAt(0)}</span>
+                        </div>
+                        <span>{m.name}</span>
+                        <span className="text-white/20">{m.ap.toFixed(0)} AP</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Top 1 glow */}
+                  {team.rank === 1 && (
+                    <div className="absolute inset-0 rounded-2xl bg-yellow-500/5 animate-pulse-slow" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Individual Leaderboard entries */}
+        {(viewMode === 'individual' || !data?.teamLeaderboard) && (
         <div className="space-y-3">
           {data?.leaderboard.map((entry, idx) => {
             const style = RANK_STYLES[entry.rank];
@@ -308,6 +419,7 @@ export default function LeaderboardPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Last updated */}
         <div className="mt-6 text-center text-white/20 text-xs flex items-center justify-center gap-1.5">

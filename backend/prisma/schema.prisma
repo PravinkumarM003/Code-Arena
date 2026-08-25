@@ -15,31 +15,34 @@ datasource db {
 // ─── Contest Events ───────────────────────────────────────────────────────────
 
 model Event {
-  id            String   @id @default(cuid())
-  name          String   // "Event 1", "Round 2", admin-defined
-  state         String   @default("WAITING") // WAITING | RUNNING | PAUSED | ENDED
-  durationMins  Int      @default(180)
-  startedAt     DateTime?
-  endedAt       DateTime?
-  createdAt     DateTime @default(now())
+  id           String    @id @default(cuid())
+  name         String // "Event 1", "Round 2", admin-defined
+  state        String    @default("WAITING") // WAITING | RUNNING | PAUSED | ENDED
+  mode         String    @default("INDIVIDUAL") // INDIVIDUAL | GROUP
+  maxTeamSize  Int       @default(4)
+  durationMins Int       @default(180)
+  startedAt    DateTime?
+  endedAt      DateTime?
+  createdAt    DateTime  @default(now())
 
-  submissions    Submission[]
-  solvedProblems SolvedProblem[]
+  submissions     Submission[]
+  solvedProblems  SolvedProblem[]
   skippedProblems SkippedProblem[]
-  participants   EventParticipant[]
+  participants    EventParticipant[]
+  teams           Team[]
 
   @@index([state])
   @@index([createdAt])
 }
 
 model EventParticipant {
-  id        String   @id @default(cuid())
-  eventId   String
-  userId    String
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apEarned  Float    @default(0) // AP earned in this specific event
-  joinedAt  DateTime @default(now())
+  id       String   @id @default(cuid())
+  eventId  String
+  userId   String
+  event    Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apEarned Float    @default(0) // AP earned in this specific event
+  joinedAt DateTime @default(now())
 
   @@unique([eventId, userId])
   @@index([eventId])
@@ -49,34 +52,40 @@ model EventParticipant {
 // ─── Users ────────────────────────────────────────────────────────────────────
 
 model User {
-  id              String   @id @default(cuid())
-  uid             String   @unique // Firebase UID
-  email           String   @unique
-  name            String
-  rollNumber      String   @default("")
-  isAdmin         Boolean  @default(false)
-  isDisqualified  Boolean  @default(false)
-  ap              Float    @default(0)  // overall AP (sum across all events)
-  rank            Int?
+  id             String  @id @default(cuid())
+  uid            String  @unique // Firebase UID
+  email          String  @unique
+  name           String
+  rollNumber     String  @default("")
+  isAdmin        Boolean @default(false)
+  isDisqualified Boolean @default(false)
+  ap             Float   @default(0) // overall AP (sum across all events)
+  rank           Int?
 
   // Session tracking
-  sessionToken    String?  @db.VarChar(512)
-  lastSeenAt      DateTime @default(now())
+  sessionToken String?  @db.VarChar(512)
+  lastSeenAt   DateTime @default(now())
 
   // Independent problem progression
   currentProblemId  String?
   problemAssignedAt DateTime?
-  problemsAttempted Int      @default(0) // total attempted (for difficulty curve)
+  problemsAttempted Int       @default(0) // total attempted (for difficulty curve)
 
   solvedProblems    SolvedProblem[]
   skippedProblems   SkippedProblem[]
   submissions       Submission[]
   antiCheatEvents   AntiCheatEvent[]
-  auditLogs         AuditLog[]       @relation("AuditTarget")
-  performedAudits   AuditLog[]       @relation("AuditAdmin")
-  similarityFlags   SimilarityFlag[] @relation("SimilarityUser")
-  similarityPairs   SimilarityFlag[] @relation("SimilarityPair")
+  auditLogs         AuditLog[]         @relation("AuditTarget")
+  performedAudits   AuditLog[]         @relation("AuditAdmin")
+  similarityFlags   SimilarityFlag[]   @relation("SimilarityUser")
+  similarityPairs   SimilarityFlag[]   @relation("SimilarityPair")
   eventParticipants EventParticipant[]
+
+  // Team relations
+  captainedTeams  Team[]       @relation("TeamCaptain")
+  teamMembers     TeamMember[]
+  sentInvites     TeamInvite[] @relation("InviteSender")
+  receivedInvites TeamInvite[] @relation("InviteReceiver")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -86,13 +95,13 @@ model User {
 }
 
 model SolvedProblem {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   userId    String
   problemId String
   eventId   String? // which event this was solved in (null = legacy)
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  problem   Problem @relation(fields: [problemId], references: [id])
-  event     Event?  @relation(fields: [eventId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem  @relation(fields: [problemId], references: [id])
+  event     Event?   @relation(fields: [eventId], references: [id])
   solvedAt  DateTime @default(now())
 
   @@unique([userId, problemId, eventId]) // allow solving same problem in different events
@@ -101,13 +110,13 @@ model SolvedProblem {
 }
 
 model SkippedProblem {
-  id        String  @id @default(cuid())
+  id        String   @id @default(cuid())
   userId    String
   problemId String
   eventId   String? // which event this skip belongs to
-  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  problem   Problem @relation(fields: [problemId], references: [id])
-  event     Event?  @relation(fields: [eventId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem  @relation(fields: [problemId], references: [id])
+  event     Event?   @relation(fields: [eventId], references: [id])
   skippedAt DateTime @default(now())
 
   @@unique([userId, problemId, eventId])
@@ -118,22 +127,22 @@ model SkippedProblem {
 // ─── Problems ─────────────────────────────────────────────────────────────────
 
 model Problem {
-  id          String      @id @default(cuid())
-  title       String
-  statement   String      @db.Text
-  difficulty  Difficulty  @default(EASY)
-  timeBudget  Int         @default(30) // minutes allowed per problem
-  isActive    Boolean     @default(true)
-  orderIndex  Int         @default(0) // for ordering in the bank
-  baseAp      Int         @default(100) // base AP awarded for solving this problem
+  id         String     @id @default(cuid())
+  title      String
+  statement  String     @db.Text
+  difficulty Difficulty @default(EASY)
+  timeBudget Int        @default(30) // minutes allowed per problem
+  isActive   Boolean    @default(true)
+  orderIndex Int        @default(0) // for ordering in the bank
+  baseAp     Int        @default(100) // base AP awarded for solving this problem
 
   // Starter code per language stored as JSON
-  starterCode Json        @default("{}")
+  starterCode Json @default("{}")
 
-  testCases   TestCase[]
-  submissions Submission[]
-  solvedBy    SolvedProblem[]
-  skippedBy   SkippedProblem[]
+  testCases    TestCase[]
+  submissions  Submission[]
+  solvedBy     SolvedProblem[]
+  skippedBy    SkippedProblem[]
   similarities SimilarityFlag[]
 
   createdAt DateTime @default(now())
@@ -143,14 +152,14 @@ model Problem {
 }
 
 model TestCase {
-  id             String   @id @default(cuid())
+  id             String  @id @default(cuid())
   problemId      String
-  problem        Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  input          String   @db.Text
-  expectedOutput String   @db.Text
-  isHidden       Boolean  @default(false) // hidden test cases not shown to student
-  points         Float    @default(1.0)
-  orderIndex     Int      @default(0)
+  problem        Problem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  input          String  @db.Text
+  expectedOutput String  @db.Text
+  isHidden       Boolean @default(false) // hidden test cases not shown to student
+  points         Float   @default(1.0)
+  orderIndex     Int     @default(0)
 
   @@index([problemId])
 }
@@ -158,32 +167,32 @@ model TestCase {
 // ─── Submissions ──────────────────────────────────────────────────────────────
 
 model Submission {
-  id              String           @id @default(cuid())
-  userId          String
-  problemId       String
-  eventId         String?          // which event this submission belongs to
-  user            User             @relation(fields: [userId], references: [id])
-  problem         Problem          @relation(fields: [problemId], references: [id])
-  event           Event?           @relation(fields: [eventId], references: [id])
+  id        String  @id @default(cuid())
+  userId    String
+  problemId String
+  eventId   String? // which event this submission belongs to
+  user      User    @relation(fields: [userId], references: [id])
+  problem   Problem @relation(fields: [problemId], references: [id])
+  event     Event?  @relation(fields: [eventId], references: [id])
 
-  code            String           @db.Text
-  language        Language
-  status          SubmissionStatus @default(PENDING)
+  code     String           @db.Text
+  language Language
+  status   SubmissionStatus @default(PENDING)
 
   // Grading results
-  testPassRatio   Float?           // 0.0 – 1.0
-  aiScore         Float?           // 0.0 – 1.0 (Claude quality score)
-  apAwarded       Float            @default(0)
-  timeTakenSeconds Int?            // seconds from problemAssignedAt to submit
+  testPassRatio    Float? // 0.0 – 1.0
+  aiScore          Float? // 0.0 – 1.0 (Claude quality score)
+  apAwarded        Float  @default(0)
+  timeTakenSeconds Int? // seconds from problemAssignedAt to submit
 
   // Piston runtime details
-  pistonOutput    Json?
-  errorMessage    String?          @db.Text
+  pistonOutput Json?
+  errorMessage String? @db.Text
 
   // BullMQ job tracking
-  jobId           String?
+  jobId String?
 
-  submittedAt DateTime @default(now())
+  submittedAt DateTime  @default(now())
   gradedAt    DateTime?
 
   @@index([userId])
@@ -194,13 +203,13 @@ model Submission {
 // ─── Anti-Cheat ───────────────────────────────────────────────────────────────
 
 model AntiCheatEvent {
-  id        String         @id @default(cuid())
+  id        String        @id @default(cuid())
   userId    String
-  user      User           @relation(fields: [userId], references: [id])
+  user      User          @relation(fields: [userId], references: [id])
   eventType AntiCheatType
   detail    String?
-  penalty   Float          @default(0)
-  timestamp DateTime       @default(now())
+  penalty   Float         @default(0)
+  timestamp DateTime      @default(now())
 
   @@index([userId])
   @@index([timestamp])
@@ -214,7 +223,7 @@ model AuditLog {
   admin        User     @relation("AuditAdmin", fields: [adminId], references: [id])
   targetUserId String?
   target       User?    @relation("AuditTarget", fields: [targetUserId], references: [id])
-  action       String   // e.g. "DISQUALIFY", "ADJUST_AP", "START_CONTEST"
+  action       String // e.g. "DISQUALIFY", "ADJUST_AP", "START_CONTEST"
   detail       String?  @db.Text
   reason       String?
   createdAt    DateTime @default(now())
@@ -226,20 +235,67 @@ model AuditLog {
 // ─── Post-Contest Plagiarism ──────────────────────────────────────────────────
 
 model SimilarityFlag {
-  id          String   @id @default(cuid())
-  problemId   String
-  problem     Problem  @relation(fields: [problemId], references: [id])
-  userId1     String
-  user1       User     @relation("SimilarityUser", fields: [userId1], references: [id])
-  userId2     String
-  user2       User     @relation("SimilarityPair", fields: [userId2], references: [id])
-  similarity  Float    // 0.0 – 1.0
-  flagged     Boolean  @default(true)
-  reviewedBy  String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(cuid())
+  problemId  String
+  problem    Problem  @relation(fields: [problemId], references: [id])
+  userId1    String
+  user1      User     @relation("SimilarityUser", fields: [userId1], references: [id])
+  userId2    String
+  user2      User     @relation("SimilarityPair", fields: [userId2], references: [id])
+  similarity Float // 0.0 – 1.0
+  flagged    Boolean  @default(true)
+  reviewedBy String?
+  createdAt  DateTime @default(now())
 
   @@unique([problemId, userId1, userId2])
   @@index([problemId])
+}
+
+// ─── Teams ────────────────────────────────────────────────────────────────────
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  captainId String
+  captain   User     @relation("TeamCaptain", fields: [captainId], references: [id])
+  createdAt DateTime @default(now())
+
+  members TeamMember[]
+  invites TeamInvite[]
+
+  @@index([eventId])
+  @@index([captainId])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  teamId   String
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status   String   @default("ACCEPTED") // ACCEPTED (captain auto-joins as accepted)
+  joinedAt DateTime @default(now())
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model TeamInvite {
+  id        String   @id @default(cuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  inviterId String
+  inviter   User     @relation("InviteSender", fields: [inviterId], references: [id])
+  inviteeId String
+  invitee   User     @relation("InviteReceiver", fields: [inviteeId], references: [id])
+  status    String   @default("PENDING") // PENDING | ACCEPTED | REJECTED
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, inviteeId])
+  @@index([inviteeId, status])
 }
 
 // ─── Enums ────────────────────────────────────────────────────────────────────

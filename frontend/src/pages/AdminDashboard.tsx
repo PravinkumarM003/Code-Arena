@@ -53,6 +53,7 @@ export default function AdminDashboard() {
   const [incidents, setIncidents] = useState<Array<{ uid: string; name: string; eventType: string; count: number; timestamp: number }>>([]);
   const [resetEventName, setResetEventName] = useState('');
   const [showResetPanel, setShowResetPanel] = useState(false);
+  const [contestMode, setContestModeState] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
 
   // New problem form
   const [showProblemForm, setShowProblemForm] = useState(false);
@@ -91,6 +92,8 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchMonitor();
     fetchProblems();
+    // Fetch current mode
+    api.get('/admin/mode').then(res => setContestModeState(res.data.mode)).catch(() => {});
     const interval = setInterval(fetchMonitor, 3000); // poll every 3s — also syncs remainingMs
     return () => clearInterval(interval);
   }, [fetchMonitor, fetchProblems]);
@@ -125,12 +128,12 @@ export default function AdminDashboard() {
   // ── Contest Controls ────────────────────────────────────────────────────────
 
   const handleStart = async () => {
-    if (!confirm('Start the contest for all connected participants?')) return;
+    if (!confirm(`Start the contest in ${contestMode} mode for all connected participants?`)) return;
     setLoading(true);
     try {
-      const res = await api.post('/admin/start');
+      const res = await api.post('/admin/start', { mode: contestMode });
       setContestState('RUNNING');
-      toast.success(`Contest started for ${res.data.usersCount} users!`);
+      toast.success(`Contest started for ${res.data.usersCount} users (${contestMode} mode)!`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to start');
     } finally {
@@ -409,6 +412,47 @@ export default function AdminDashboard() {
                 <Settings className="w-5 h-5 text-brand-400" />
                 Contest Control
               </h3>
+
+              {/* Mode Toggle */}
+              {contestState === 'WAITING' && (
+                <div className="mb-4 flex items-center gap-3 bg-white/5 rounded-xl p-3">
+                  <span className="text-white/60 text-sm font-medium">Mode:</span>
+                  <div className="flex bg-white/5 rounded-lg p-0.5">
+                    <button
+                      onClick={() => {
+                        setContestModeState('INDIVIDUAL');
+                        api.put('/admin/mode', { mode: 'INDIVIDUAL' }).catch(() => {});
+                      }}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                        contestMode === 'INDIVIDUAL'
+                          ? 'bg-brand-600 text-white shadow-sm'
+                          : 'text-white/40 hover:text-white/70'
+                      }`}
+                    >
+                      Individual
+                    </button>
+                    <button
+                      onClick={() => {
+                        setContestModeState('GROUP');
+                        api.put('/admin/mode', { mode: 'GROUP' }).catch(() => {});
+                      }}
+                      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                        contestMode === 'GROUP'
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-white/40 hover:text-white/70'
+                      }`}
+                    >
+                      Group (Teams)
+                    </button>
+                  </div>
+                  {contestMode === 'GROUP' && (
+                    <span className="text-purple-400 text-xs font-medium ml-auto">
+                      Teams of 4
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <button
                   onClick={handleStart}

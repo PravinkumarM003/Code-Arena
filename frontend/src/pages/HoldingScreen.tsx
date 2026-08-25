@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Users, Clock, Code2, Wifi, LogOut } from 'lucide-react';
+import { Users, Clock, Code2, Wifi, LogOut, Users2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useContest } from '../contexts/ContestContext';
+import TeamFormation from './TeamFormation';
 
 export default function HoldingScreen() {
   const { user, logout } = useAuth();
-  const { connectedCount, contestState } = useContest();
+  const { connectedCount, contestState, eventMode } = useContest();
   const [dots, setDots] = useState('');
+  const [showTeamPanel, setShowTeamPanel] = useState(false);
   const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; size: number; speed: number }>>([]);
 
   // Animated dots
@@ -99,7 +101,25 @@ export default function HoldingScreen() {
               The admin will start the contest shortly. Stay on this page.
             </p>
           </div>
+
+          {/* Group Mode: Team Formation Toggle */}
+          {eventMode === 'GROUP' && (
+            <button
+              onClick={() => setShowTeamPanel(!showTeamPanel)}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 font-semibold text-sm hover:bg-purple-500/20 transition-all mx-auto"
+            >
+              <Users2 className="w-4 h-4" />
+              {showTeamPanel ? 'Hide Team Formation' : '👥 Form Your Team'}
+            </button>
+          )}
         </div>
+
+        {/* Team Formation Panel */}
+        {eventMode === 'GROUP' && showTeamPanel && (
+          <div className="w-full max-w-lg mx-auto mb-8 animate-slide-up">
+            <TeamFormation />
+          </div>
+        )}
 
         {/* Live connection counter */}
         <div className="glass-card px-8 py-6 text-center animate-slide-up" style={{ animationDelay: '0.1s' }}>

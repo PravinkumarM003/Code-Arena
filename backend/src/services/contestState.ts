@@ -19,6 +19,7 @@ const KEYS = {
   LEADERBOARD: 'leaderboard',
   INFRA_STATS: 'contest:infra_stats',
   CURRENT_EVENT_ID: 'contest:current_event_id',
+  CONTEST_MODE: 'contest:mode',           // INDIVIDUAL | GROUP
 } as const;
 
 // ─── Event Management ────────────────────────────────────────────────────────
@@ -39,20 +40,43 @@ export async function setCurrentEventId(eventId: string): Promise<void> {
   await redis.set(KEYS.CURRENT_EVENT_ID, eventId);
 }
 
+// ─── Contest Mode ───────────────────────────────────────────────────────────
+
+export type ContestMode = 'INDIVIDUAL' | 'GROUP';
+
+/**
+ * Get the current contest mode from Redis.
+ */
+export async function getContestMode(): Promise<ContestMode> {
+  const redis = getRedis();
+  const mode = await redis.get(KEYS.CONTEST_MODE);
+  return (mode as ContestMode) || 'INDIVIDUAL';
+}
+
+/**
+ * Set the contest mode in Redis.
+ */
+export async function setContestMode(mode: ContestMode): Promise<void> {
+  const redis = getRedis();
+  await redis.set(KEYS.CONTEST_MODE, mode);
+  logger.info('Contest mode set', { mode });
+}
+
 /**
  * Create a new Event record in the DB and set as current.
  * Auto-generates name like "Event 1", "Event 2" if no name given.
  */
-export async function createEvent(durationMins: number, name?: string): Promise<string> {
+export async function createEvent(durationMins: number, name?: string, mode: ContestMode = 'INDIVIDUAL'): Promise<string> {
   const count = await prisma.event.count();
   const eventName = name || `Event ${count + 1}`;
 
   const event = await prisma.event.create({
-    data: { name: eventName, state: 'RUNNING', durationMins, startedAt: new Date() },
+    data: { name: eventName, state: 'RUNNING', mode, durationMins, startedAt: new Date() },
   });
 
   await setCurrentEventId(event.id);
-  logger.info('Event created', { eventId: event.id, name: eventName });
+  await setContestMode(mode);
+  logger.info('Event created', { eventId: event.id, name: eventName, mode });
   return event.id;
 }
 

@@ -20,6 +20,8 @@ import {
   getCurrentEventId,
   getEventHistory,
   deleteAnnouncement,
+  getContestMode,
+  setContestMode,
 } from '../services/contestState';
 
 // Helper: broadcast contest state change using io attached to req
@@ -31,7 +33,6 @@ import { getTopN, getAllUsers, adjustLeaderboardScore, registerUserForEvent } fr
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import { getSubmissionQueue } from '../workers/grading';
-import { getRedis } from '../config/redis';
 
 const router = Router();
 
@@ -56,8 +57,9 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
     const endTime = await startContest(durationMinutes);
 
     // Create an Event record in the DB for this contest run
-    const { name: eventName } = req.body as { name?: string };
-    const eventId = await createEvent(durationMinutes, eventName);
+    const { name: eventName, mode: eventMode } = req.body as { name?: string; mode?: 'INDIVIDUAL' | 'GROUP' };
+    const mode = eventMode || 'INDIVIDUAL';
+    const eventId = await createEvent(durationMinutes, eventName, mode);
 
     // Get all registered users and assign their first problems
     const users = await prisma.user.findMany({
@@ -79,18 +81,18 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
 
     // Broadcast to all connected clients
     const io = (req as any).io;
-    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000, eventId });
-    io.emit('contest:started', { endTime, eventId });
+    broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000, eventId, mode });
+    io.emit('contest:started', { endTime, eventId, mode });
 
     await prisma.auditLog.create({
       data: {
         adminId: req.user!.dbUserId,
         action: 'START_CONTEST',
-        detail: `Event "${eventId}" started for ${users.length} users`,
+        detail: `Event "${eventId}" started for ${users.length} users (mode: ${mode})`,
       },
     });
 
-    res.json({ success: true, endTime, eventId, usersCount: users.length });
+    res.json({ success: true, endTime, eventId, usersCount: users.length, mode });
   } catch (err) {
     logger.error('Failed to start contest', { error: err });
     res.status(500).json({ error: 'Failed to start contest' });
@@ -498,6 +500,52 @@ router.get('/export', async (_req: Request, res: Response): Promise<void> => {
     res.send(rows);
   } catch (err) {
     res.status(500).json({ error: 'Failed to export results' });
+  }
+});
+
+// ─── Contest Mode ────────────────────────────────────────────────────────────
+
+router.get('/mode', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const mode = await getContestMode();
+    res.json({ mode });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get contest mode' });
+  }
+});
+
+router.put('/mode', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const schema = z.object({ mode: z.enum(['INDIVIDUAL', 'GROUP']) });
+    const { mode } = schema.parse(req.body);
+    await setContestMode(mode);
+
+    const io = (req as any).io;
+    io.emit('contest:mode', { mode });
+
+    res.json({ success: true, mode });
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid mode' });
+  }
+});
+
+// ─── Team Management (Admin) ─────────────────────────────────────────────────
+
+router.get('/teams', async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const teams = await prisma.team.findMany({
+      include: {
+        captain: { select: { id: true, name: true, email: true } },
+        members: {
+          include: { user: { select: { id: true, name: true, email: true } } },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({ teams });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch teams' });
   }
 });
 

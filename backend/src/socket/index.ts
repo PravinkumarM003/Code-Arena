@@ -12,6 +12,7 @@ import {
   getAnnouncement,
   updateInfraStats,
   getCurrentEventId,
+  getContestMode,
 } from '../services/contestState';
 import { getCurrentProblem } from '../services/problemAssigner';
 import { getDraftFromRedis } from '../services/draftSaver';
@@ -236,9 +237,10 @@ async function handleSessionRestore(
       });
     }
 
-    const [ap, rank] = await Promise.all([
+    const [ap, rank, mode] = await Promise.all([
       getUserAP(dbUserId, eventId),
       getUserRank(dbUserId, eventId),
+      getContestMode(),
     ]);
 
     // Get code draft if there is a current problem
@@ -257,6 +259,7 @@ async function handleSessionRestore(
       rank,
       eventId,
       isLocked,
+      mode,
     });
   } catch (err) {
     logger.error('Session restore error', { uid, error: err });

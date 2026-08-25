@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Trophy, Zap, CheckCircle2, Clock, Star, Home } from 'lucide-react';
+import { Trophy, Zap, CheckCircle2, Clock, Star, Home, Users, Crown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -12,6 +12,12 @@ interface ResultData {
   problemsSolved: number;
   solvedProblems: Array<{ title: string; difficulty: string; solvedAt: string }>;
   submissions: Array<{ apAwarded: number; timeTakenSeconds: number; problem: { title: string } }>;
+  mode?: 'INDIVIDUAL' | 'GROUP';
+  team?: {
+    teamName: string;
+    captainName: string;
+    members: Array<{ userId: string; name: string }>;
+  } | null;
 }
 
 export default function ResultsPage() {
@@ -94,6 +100,30 @@ export default function ResultsPage() {
             </div>
           </div>
         </div>
+
+        {/* Team Card (GROUP mode only) */}
+        {result.mode === 'GROUP' && result.team && (
+          <div className="glass-card p-6 mb-6 animate-slide-up border-purple-500/20 bg-purple-500/5" style={{ animationDelay: '0.05s' }}>
+            <h3 className="font-bold text-white mb-3 flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-400" />
+              Your Team
+            </h3>
+            <p className="text-2xl font-black text-white mb-1">{result.team.teamName}</p>
+            <p className="text-white/30 text-sm mb-4 flex items-center gap-1">
+              <Crown className="w-3 h-3 text-yellow-400" /> Captain: {result.team.captainName}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {result.team.members.map((m) => (
+                <div key={m.userId} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
+                    <span className="text-white text-[9px] font-bold">{m.name.charAt(0)}</span>
+                  </div>
+                  <span className="text-white/70 text-sm">{m.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Solved problems */}
         {result.solvedProblems.length > 0 && (

@@ -59,6 +59,8 @@ interface ContestContextType {
   isJudging: boolean;
   announcement: string | null;
   isLocked: boolean;
+  eventMode: 'INDIVIDUAL' | 'GROUP';
+  teamInvites: Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>;
 }
 
 const ContestContext = createContext<ContestContextType | null>(null);
@@ -78,6 +80,8 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
   const [isJudging, setIsJudging] = useState(false);
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+  const [eventMode, setEventMode] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
+  const [teamInvites, setTeamInvites] = useState<Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>>([]);
 
   // Countdown timer (purely display — server is the source of truth)
   useEffect(() => {
@@ -142,6 +146,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         ap: number;
         rank: number;
         isLocked?: boolean;
+        mode?: 'INDIVIDUAL' | 'GROUP';
       }) => {
         setContestState(data.state);
         setRemainingMs(data.remainingMs);
@@ -152,6 +157,9 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         setRank(data.rank);
         if (data.isLocked !== undefined) {
           setIsLocked(data.isLocked);
+        }
+        if (data.mode) {
+          setEventMode(data.mode);
         }
       });
 
@@ -214,6 +222,28 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         sock.emit('session:restore');
       });
 
+      // ── Team Events ─────────────────────────────────────────────────
+      sock.on('team:invite', (data: { inviteId: string; teamId: string; teamName: string; inviterName: string }) => {
+        setTeamInvites((prev) => [...prev, data]);
+        toast(`👥 ${data.inviterName} invited you to join "${data.teamName}"`, { icon: '📨', duration: 10000 });
+      });
+
+      sock.on('team:accepted', (data: { userName: string }) => {
+        toast.success(`✅ ${data.userName} joined your team!`);
+      });
+
+      sock.on('team:rejected', (data: { userName: string }) => {
+        toast(`❌ ${data.userName} declined the invite`, { icon: '😞' });
+      });
+
+      sock.on('team:disbanded', (data: { teamName: string }) => {
+        toast.error(`Team "${data.teamName}" was disbanded`);
+      });
+
+      sock.on('contest:mode', (data: { mode: 'INDIVIDUAL' | 'GROUP' }) => {
+        setEventMode(data.mode);
+      });
+
       // ── Reconnect: restore state from server ─────────────────────────
       sock.on('connect', () => {
         sock.emit('session:restore');
@@ -265,6 +295,12 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         sock.off('connect');
         sock.off('reconnect');
         sock.off('connect_error');
+        sock.off('team:invite');
+        sock.off('team:accepted');
+        sock.off('team:rejected');
+        sock.off('team:disbanded');
+        sock.off('team:update');
+        sock.off('contest:mode');
       }
     };
   }, [user, connectSocket]);
@@ -284,6 +320,8 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       isJudging,
       announcement,
       isLocked,
+      eventMode,
+      teamInvites,
     }}>
       {children}
     </ContestContext.Provider>
