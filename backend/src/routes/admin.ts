@@ -339,22 +339,26 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
       },
     });
 
-    // Clear anticheat counts and overall AP from Redis
-    const redis = getRedis();
-    const [anticheatKeys, apKeys] = await Promise.all([
-      redis.keys('anticheat:count:*'),
-      redis.keys('user:ap:overall:*'),
-    ]);
-    const keysToDelete = [...anticheatKeys, ...apKeys, 'leaderboard:overall'].filter(Boolean);
-    if (keysToDelete.length > 0) {
-      await redis.del(keysToDelete);
-    }
-
-    // Get all users and assign fresh first problems + register for new event
+    // Get all users to clear their specific Redis keys and re-assign problems
     const users = await prisma.user.findMany({
       where: { isAdmin: false },
-      select: { id: true },
+      select: { id: true, uid: true },
     });
+
+    // Clear anticheat counts and overall AP from Redis explicitly
+    const redis = getRedis();
+    const keysToDelete = ['leaderboard:overall'];
+    users.forEach(u => {
+      keysToDelete.push(`anticheat:count:${u.uid}`);
+      keysToDelete.push(`user:ap:overall:${u.id}`);
+    });
+    
+    if (keysToDelete.length > 0) {
+      // Split into chunks if too many keys to avoid Redis argument limits
+      for (let i = 0; i < keysToDelete.length; i += 500) {
+        await redis.del(...keysToDelete.slice(i, i + 500));
+      }
+    }
 
     const BATCH = 50;
     for (let i = 0; i < users.length; i += BATCH) {
