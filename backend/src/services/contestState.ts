@@ -97,14 +97,14 @@ export async function endCurrentEvent(): Promise<void> {
  * All per-event Redis leaderboard keys for the new event start empty.
  * Returns the new eventId and endTime epoch.
  */
-export async function hardReset(durationMins: number, name?: string): Promise<{ eventId: string; endTime: number }> {
+export async function hardReset(durationMins: number, name?: string, mode?: ContestMode): Promise<{ eventId: string; endTime: number }> {
   const redis = getRedis();
 
   // End the previous event in DB
   await endCurrentEvent();
 
   // Create fresh event record
-  const eventId = await createEvent(durationMins, name);
+  const eventId = await createEvent(durationMins, name, mode);
 
   const now = Date.now();
   const endTime = now + durationMins * 60 * 1000;

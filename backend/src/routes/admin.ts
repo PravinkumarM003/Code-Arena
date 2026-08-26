@@ -276,6 +276,7 @@ router.post('/override', async (req: Request, res: Response): Promise<void> => {
 const resetSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   durationMinutes: z.number().int().min(1).max(480).optional(),
+  mode: z.enum(['INDIVIDUAL', 'GROUP']).optional(),
 });
 
 /**
@@ -318,10 +319,10 @@ router.post('/reset/soft', async (req: Request, res: Response): Promise<void> =>
  */
 router.post('/reset/hard', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, durationMinutes } = resetSchema.parse(req.body);
+    const { name, durationMinutes, mode } = resetSchema.parse(req.body);
     const durationMins = durationMinutes || parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
 
-    const { eventId, endTime } = await hardReset(durationMins, name);
+    const { eventId, endTime } = await hardReset(durationMins, name, mode);
 
     // Reset all user problem progress (clean slate for new event)
     await prisma.user.updateMany({

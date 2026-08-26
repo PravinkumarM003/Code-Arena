@@ -211,6 +211,7 @@ export default function AdminDashboard() {
     try {
       const res = await api.post('/admin/reset/hard', {
         name: resetEventName.trim() || undefined,
+        mode: contestMode,
       });
       setContestState('RUNNING');
       setShowResetPanel(false);
@@ -414,7 +415,7 @@ export default function AdminDashboard() {
               </h3>
 
               {/* Mode Toggle */}
-              {contestState === 'WAITING' && (
+              {(contestState === 'WAITING' || contestState === 'ENDED') && (
                 <div className="mb-4 flex items-center gap-3 bg-white/5 rounded-xl p-3">
                   <span className="text-white/60 text-sm font-medium">Mode:</span>
                   <div className="flex bg-white/5 rounded-lg p-0.5">
