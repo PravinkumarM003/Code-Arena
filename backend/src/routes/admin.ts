@@ -354,9 +354,10 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
     });
     
     if (keysToDelete.length > 0) {
-      // Split into chunks if too many keys to avoid Redis argument limits
+      // Split into chunks if too many keys
       for (let i = 0; i < keysToDelete.length; i += 500) {
-        await redis.del(...keysToDelete.slice(i, i + 500));
+        const chunk = keysToDelete.slice(i, i + 500);
+        await redis.del(chunk);
       }
     }
 
