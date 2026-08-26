@@ -43,10 +43,14 @@ function PageLoader() {
  */
 function ContestRouter() {
   const { isAdmin } = useAuth();
-  const { contestState, isLocked } = useContest();
+  const { contestState, isLocked, isSessionRestored } = useContest();
 
   if (isAdmin) {
     return <AdminDashboard />;
+  }
+
+  if (!isSessionRestored) {
+    return <PageLoader />;
   }
 
   if (isLocked) {

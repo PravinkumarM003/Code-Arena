@@ -60,6 +60,7 @@ interface ContestContextType {
   announcement: string | null;
   isLocked: boolean;
   eventMode: 'INDIVIDUAL' | 'GROUP';
+  isSessionRestored: boolean;
   teamInvites: Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>;
 }
 
@@ -81,6 +82,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
   const [announcement, setAnnouncement] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [eventMode, setEventMode] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
+  const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [teamInvites, setTeamInvites] = useState<Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>>([]);
 
   // Countdown timer (purely display — server is the source of truth)
@@ -161,6 +163,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         if (data.mode) {
           setEventMode(data.mode);
         }
+        setIsSessionRestored(true);
       });
 
       // ── Submission Events ────────────────────────────────────────────
@@ -271,6 +274,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       setSocket(null);
       setContestState('WAITING');
       setCurrentProblem(null);
+      setIsSessionRestored(false);
     }
 
     return () => {
@@ -320,6 +324,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       isJudging,
       announcement,
       isLocked,
+      isSessionRestored,
       eventMode,
       teamInvites,
     }}>

@@ -14,9 +14,9 @@ import {
   getCurrentEventId,
   getContestMode,
 } from '../services/contestState';
-import { getCurrentProblem } from '../services/problemAssigner';
+import { getCurrentProblem, assignNextProblem } from '../services/problemAssigner';
 import { getDraftFromRedis } from '../services/draftSaver';
-import { getUserAP, getUserRank, registerUser, adjustLeaderboardScore } from '../services/leaderboard';
+import { getUserAP, getUserRank, registerUser, adjustLeaderboardScore, registerUserForEvent } from '../services/leaderboard';
 
 const COLLEGE_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'bitsathy.ac.in';
 
@@ -219,17 +219,25 @@ async function handleSessionRestore(
   remainingMs: number
 ): Promise<void> {
   try {
-    const [dbUser, problem, times, eventId] = await Promise.all([
+    const [dbUser, times, eventId] = await Promise.all([
       prisma.user.findUnique({
         where: { id: dbUserId },
         select: { isDisqualified: true, isAdmin: true },
       }),
-      getCurrentProblem(dbUserId),
       getContestTimes(),
       getCurrentEventId(),
     ]);
 
+    let problem = await getCurrentProblem(dbUserId);
+
     const isLocked = Boolean(dbUser?.isDisqualified && !dbUser?.isAdmin);
+
+    if (state === 'RUNNING' && !isLocked && !problem) {
+      problem = await assignNextProblem(dbUserId);
+      if (problem && eventId) {
+        await registerUserForEvent(dbUserId, eventId);
+      }
+    }
 
     if (isLocked) {
       socket.emit('anticheat:locked', {
