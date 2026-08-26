@@ -324,6 +324,9 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
 
     const { eventId, endTime } = await hardReset(durationMins, name, mode);
 
+    // Delete all anti-cheat logs from DB
+    await prisma.antiCheatEvent.deleteMany({});
+
     // Reset all user problem progress (clean slate for new event)
     await prisma.user.updateMany({
       where: { isAdmin: false },
@@ -331,12 +334,25 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
         currentProblemId: null,
         problemAssignedAt: null,
         problemsAttempted: 0,
+        isDisqualified: false,
+        ap: 0,
       },
     });
 
+    // Clear anticheat counts and overall AP from Redis
+    const redis = getRedis();
+    const [anticheatKeys, apKeys] = await Promise.all([
+      redis.keys('anticheat:count:*'),
+      redis.keys('user:ap:overall:*'),
+    ]);
+    const keysToDelete = [...anticheatKeys, ...apKeys, 'leaderboard:overall'].filter(Boolean);
+    if (keysToDelete.length > 0) {
+      await redis.del(keysToDelete);
+    }
+
     // Get all users and assign fresh first problems + register for new event
     const users = await prisma.user.findMany({
-      where: { isAdmin: false, isDisqualified: false },
+      where: { isAdmin: false },
       select: { id: true },
     });
 
