@@ -5,7 +5,7 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
 
 const api = axios.create({
   baseURL: BACKEND_URL,
-  timeout: 30_000,
+  timeout: 60_000,
 });
 
 // Attach Firebase ID token to every request
