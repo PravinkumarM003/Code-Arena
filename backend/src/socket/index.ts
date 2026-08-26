@@ -126,10 +126,8 @@ export function setupSocketHandlers(io: SocketServer): void {
       remainingMs: times.remainingMs,
     });
 
-    // If contest is already running, restore session
-    if (state === 'RUNNING' || state === 'PAUSED') {
-      await handleSessionRestore(socket, uid, dbUserId, state, times.remainingMs);
-    }
+    // Always restore session to initialize client state (even in WAITING)
+    await handleSessionRestore(socket, uid, dbUserId, state, times.remainingMs);
 
     // Send any active announcement
     const announcement = await getAnnouncement();
