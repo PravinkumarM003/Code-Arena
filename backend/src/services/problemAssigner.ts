@@ -1,6 +1,6 @@
 import { prisma } from '../config/database';
 import { getRedis } from '../config/redis';
-import { getDifficultyCurve } from './contestState';
+import { getDifficultyCurve, getCurrentEventId } from './contestState';
 import { logger } from '../config/logger';
 import type { Difficulty } from '@prisma/client';
 
@@ -27,12 +27,20 @@ interface ProblemForClient {
 export async function assignNextProblem(userId: string): Promise<ProblemForClient | null> {
   const redis = getRedis();
 
-  // Get the user's current progress
+  const currentEventId = await getCurrentEventId();
+
+  // Get the user's current progress (scoped to the active event if present)
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
-      solvedProblems: { select: { problemId: true } },
-      skippedProblems: { select: { problemId: true } },
+      solvedProblems: {
+        where: currentEventId ? { eventId: currentEventId } : undefined,
+        select: { problemId: true },
+      },
+      skippedProblems: {
+        where: currentEventId ? { eventId: currentEventId } : undefined,
+        select: { problemId: true },
+      },
     },
   });
 
@@ -203,23 +211,25 @@ export async function canSkip(userId: string): Promise<{ allowed: boolean; remai
  */
 export async function skipProblem(
   userId: string,
-  problemId: string
+  problemId: string,
+  eventId?: string | null
 ): Promise<ProblemForClient | null> {
   const redis = getRedis();
+  const targetEventId = eventId !== undefined ? eventId : await getCurrentEventId();
 
-  // Record the skip (null eventId = no specific event context)
+  // Record the skip
   const existingSkip = await prisma.skippedProblem.findFirst({
-    where: { userId, problemId, eventId: null },
+    where: { userId, problemId, eventId: targetEventId ?? null },
   });
   if (!existingSkip) {
-    await prisma.skippedProblem.create({ data: { userId, problemId, eventId: null } });
+    await prisma.skippedProblem.create({ data: { userId, problemId, eventId: targetEventId ?? null } });
   }
 
   // Clear cached problem
   await redis.del(CURRENT_PROBLEM_KEY(userId));
   await redis.del(PROBLEM_ASSIGNED_AT_KEY(userId));
 
-  logger.info('Problem skipped', { userId, problemId });
+  logger.info('Problem skipped', { userId, problemId, eventId: targetEventId });
 
   // Assign next
   return assignNextProblem(userId);
@@ -230,20 +240,23 @@ export async function skipProblem(
  */
 export async function markSolved(
   userId: string,
-  problemId: string
+  problemId: string,
+  eventId?: string | null
 ): Promise<void> {
+  const targetEventId = eventId !== undefined ? eventId : await getCurrentEventId();
+
   const existingSolve = await prisma.solvedProblem.findFirst({
-    where: { userId, problemId, eventId: null },
+    where: { userId, problemId, eventId: targetEventId ?? null },
   });
   if (!existingSolve) {
-    await prisma.solvedProblem.create({ data: { userId, problemId, eventId: null } });
+    await prisma.solvedProblem.create({ data: { userId, problemId, eventId: targetEventId ?? null } });
   }
 
   const redis = getRedis();
   await redis.del(CURRENT_PROBLEM_KEY(userId));
   await redis.del(PROBLEM_ASSIGNED_AT_KEY(userId));
 
-  logger.info('Problem solved', { userId, problemId });
+  logger.info('Problem solved', { userId, problemId, eventId: targetEventId });
 }
 
 /**

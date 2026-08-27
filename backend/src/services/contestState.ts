@@ -260,18 +260,28 @@ export async function getContestTimes(): Promise<{
   remainingMs: number;
 }> {
   const redis = getRedis();
-  const [state, endTimeStr, startTimeStr] = await redis.mget(
+  const [state, endTimeStr, startTimeStr, elapsedMsStr] = await redis.mget(
     KEYS.STATE,
     KEYS.END_TIME,
-    KEYS.START_TIME
+    KEYS.START_TIME,
+    KEYS.ELAPSED_MS
   );
 
+  const resolvedState = (state as ContestState) || 'WAITING';
   const endTime = endTimeStr ? parseInt(endTimeStr) : null;
   const startTime = startTimeStr ? parseInt(startTimeStr) : null;
-  const remainingMs = endTime ? Math.max(0, endTime - Date.now()) : 0;
+
+  // remainingMs is only meaningful when the contest is actively running.
+  // ENDED/WAITING → 0, PAUSED → stored elapsed snapshot, RUNNING → live countdown.
+  let remainingMs = 0;
+  if (resolvedState === 'RUNNING' && endTime) {
+    remainingMs = Math.max(0, endTime - Date.now());
+  } else if (resolvedState === 'PAUSED' && elapsedMsStr) {
+    remainingMs = parseInt(elapsedMsStr);
+  }
 
   return {
-    state: (state as ContestState) || 'WAITING',
+    state: resolvedState,
     endTime,
     startTime,
     remainingMs,

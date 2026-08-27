@@ -48,20 +48,26 @@ router.post('/run-similarity', authMiddleware, adminOnly, async (_req: Request, 
 
       for (let i = 0; i < submissions.length; i++) {
         for (let j = i + 1; j < submissions.length; j++) {
+          if (submissions[i].userId === submissions[j].userId) continue;
+
+          const [user1Id, user2Id] = submissions[i].userId < submissions[j].userId
+            ? [submissions[i].userId, submissions[j].userId]
+            : [submissions[j].userId, submissions[i].userId];
+
           const sim = tokenSimilarity(submissions[i].code, submissions[j].code);
           if (sim >= 0.75) {
             await prisma.similarityFlag.upsert({
               where: {
                 problemId_userId1_userId2: {
                   problemId: problem.id,
-                  userId1: submissions[i].userId,
-                  userId2: submissions[j].userId,
+                  userId1: user1Id,
+                  userId2: user2Id,
                 },
               },
               create: {
                 problemId: problem.id,
-                userId1: submissions[i].userId,
-                userId2: submissions[j].userId,
+                userId1: user1Id,
+                userId2: user2Id,
                 similarity: sim,
               },
               update: { similarity: sim },

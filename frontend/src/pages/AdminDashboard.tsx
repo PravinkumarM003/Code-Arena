@@ -65,6 +65,8 @@ export default function AdminDashboard() {
     isActive: true,
   });
 
+  // Initial cold-start fetch — populates data before the first socket push arrives.
+  // Health detail is fetched once here; the monitor data comes via socket push after this.
   const fetchMonitor = useCallback(async () => {
     try {
       const [monitorRes, healthRes] = await Promise.all([
@@ -90,12 +92,11 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
+    // Single initial fetch for cold-start data
     fetchMonitor();
     fetchProblems();
-    // Fetch current mode
     api.get('/admin/mode').then(res => setContestModeState(res.data.mode)).catch(() => {});
-    const interval = setInterval(fetchMonitor, 3000); // poll every 3s — also syncs remainingMs
-    return () => clearInterval(interval);
+    // No polling interval — monitor data now arrives via socket push (admin:monitor event)
   }, [fetchMonitor, fetchProblems]);
 
   // Listen for real-time anti-cheat incidents via socket
@@ -113,8 +114,28 @@ export default function AdminDashboard() {
         return [data, ...prev];
       });
     };
+
+    // Receive server-pushed monitor snapshots (replaces HTTP polling).
+    // The backend emits admin:monitor every 5s to the 'admins' room.
+    const handleMonitorPush = (data: {
+      users: MonitorUser[];
+      contestState: ContestState;
+      remainingMs: number;
+      queueDepth: number;
+      queueFailed: number;
+      infraStats: InfraStats;
+    }) => {
+      setUsers(data.users || []);
+      setContestState(data.contestState);
+      setRemainingMs(data.remainingMs);
+    };
+
     socket.on('admin:incident', handleIncident);
-    return () => { socket.off('admin:incident', handleIncident); };
+    socket.on('admin:monitor', handleMonitorPush);
+    return () => {
+      socket.off('admin:incident', handleIncident);
+      socket.off('admin:monitor', handleMonitorPush);
+    };
   }, [socket]);
 
   function formatTime(ms: number) {
@@ -194,7 +215,7 @@ export default function AdminDashboard() {
     if (!confirm('Soft Reset: restart the timer but keep all current scores and progress?')) return;
     setLoading(true);
     try {
-      const res = await api.post('/admin/reset/soft');
+      await api.post('/admin/reset/soft');
       setContestState('RUNNING');
       setShowResetPanel(false);
       toast.success(`Timer restarted! Same event continues.`);

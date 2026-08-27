@@ -224,12 +224,7 @@ export async function getUserRank(userId: string, eventId?: string | null): Prom
 export async function getUserAPByEvent(userId: string, eventId: string): Promise<number> {
   const redis = getRedis();
   const ap = await redis.get(EVENT_AP_KEY(eventId, userId));
-  // Fall back to legacy key if not found (first event before migration)
-  if (!ap) {
-    const legacy = await redis.get(LEGACY_AP_KEY(userId));
-    return legacy ? parseFloat(legacy) : 0;
-  }
-  return parseFloat(ap);
+  return ap ? parseFloat(ap) : 0;
 }
 
 /**

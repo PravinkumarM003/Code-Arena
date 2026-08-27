@@ -201,7 +201,66 @@ export function setupSocketHandlers(io: SocketServer): void {
       await updateInfraStats({ activeConnections: contestantCount });
       io.emit('contest:connected', { count: contestantCount });
       logger.info('Socket disconnected', { uid, reason, connected: contestantCount });
+
+      // If no admins remain, stop the monitor push interval
+      const adminCount = io.sockets.adapter.rooms.get('admins')?.size || 0;
+      if (adminCount === 0 && (io as any)._monitorInterval) {
+        clearInterval((io as any)._monitorInterval);
+        (io as any)._monitorInterval = null;
+        logger.info('Admin monitor interval stopped — no admins connected');
+      }
     });
+
+    // ── Admin Monitor Push ────────────────────────────────────────────────
+    // Start a 5-second push interval when an admin connects.
+    // This replaces the 3-second HTTP polling loop in AdminDashboard,
+    // avoiding browser connection-limit stalls.
+    if (isAdmin && !(io as any)._monitorInterval) {
+      (io as any)._monitorInterval = setInterval(async () => {
+        try {
+          const adminRoom = io.sockets.adapter.rooms.get('admins');
+          if (!adminRoom || adminRoom.size === 0) {
+            clearInterval((io as any)._monitorInterval);
+            (io as any)._monitorInterval = null;
+            return;
+          }
+
+          const { getAllUsers } = await import('../services/leaderboard');
+          const { getContestTimes, getInfraStats } = await import('../services/contestState');
+          const { getSubmissionQueue } = await import('../workers/grading');
+          const { prisma: db } = await import('../config/database');
+
+          const queue = getSubmissionQueue();
+          const [users, times, infraStats, dbUsers, waiting, active, failed] = await Promise.all([
+            getAllUsers(),
+            getContestTimes(),
+            getInfraStats(),
+            db.user.findMany({ select: { id: true, isDisqualified: true } }),
+            queue.getWaitingCount(),
+            queue.getActiveCount(),
+            queue.getFailedCount(),
+          ]);
+
+          const dqMap = new Map(dbUsers.map((u: { id: string; isDisqualified: boolean }) => [u.id, u.isDisqualified]));
+          const usersWithDq = users.map(u => ({
+            ...u,
+            isDisqualified: dqMap.get(u.userId) || false,
+          }));
+
+          io.to('admins').emit('admin:monitor', {
+            users: usersWithDq,
+            contestState: times.state,
+            remainingMs: times.remainingMs,
+            queueDepth: waiting + active,
+            queueFailed: failed,
+            infraStats,
+          });
+        } catch (err) {
+          logger.error('Admin monitor push failed', { error: err });
+        }
+      }, 5000);
+      logger.info('Admin monitor interval started', { uid });
+    }
   });
 }
 

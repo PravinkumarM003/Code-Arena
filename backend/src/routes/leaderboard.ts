@@ -44,7 +44,13 @@ router.get('/top', async (req: Request, res: Response): Promise<void> => {
     }
 
     // Check if this event is in GROUP mode
-    const mode = await getContestMode();
+    let mode = await getContestMode();
+    if (eventId) {
+      const eventRecord = await prisma.event.findUnique({ where: { id: eventId }, select: { mode: true } });
+      if (eventRecord?.mode) {
+        mode = eventRecord.mode as any;
+      }
+    }
 
     // If GROUP mode and not overall, also return team leaderboard
     let teamLeaderboard = null;
@@ -131,12 +137,18 @@ router.get('/me', authMiddleware, async (req: Request, res: Response): Promise<v
  */
 router.get('/results', authMiddleware, async (req: Request, res: Response): Promise<void> => {
   try {
+    const eventParam = (req.query.event as string) || 'current';
+    const eventId = eventParam === 'current' ? await getCurrentEventId() : eventParam;
+
     const user = await prisma.user.findUnique({
       where: { id: req.user!.dbUserId },
       include: {
-        solvedProblems: { include: { problem: { select: { title: true, difficulty: true } } } },
+        solvedProblems: { 
+          where: eventId ? { eventId } : undefined,
+          include: { problem: { select: { title: true, difficulty: true } } } 
+        },
         submissions: {
-          where: { status: 'ACCEPTED' },
+          where: { status: 'ACCEPTED', ...(eventId ? { eventId } : {}) },
           select: { apAwarded: true, timeTakenSeconds: true, submittedAt: true, problem: { select: { title: true } } },
           orderBy: { submittedAt: 'asc' },
         },
@@ -145,7 +157,10 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
           orderBy: { joinedAt: 'asc' },
         },
         teamMembers: {
-          where: { status: 'ACCEPTED' },
+          where: { 
+            status: 'ACCEPTED',
+            ...(eventId ? { team: { eventId } } : {})
+          },
           include: {
             team: {
               include: {
@@ -167,7 +182,7 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
     }
 
     const [rank, rankOverall, mode] = await Promise.all([
-      getUserRank(req.user!.dbUserId, await getCurrentEventId()),
+      getUserRank(req.user!.dbUserId, eventId),
       getUserRankOverall(req.user!.dbUserId),
       getContestMode(),
     ]);

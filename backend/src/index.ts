@@ -31,8 +31,13 @@ initFirebase();
 
 const app = express();
 
-// Security headers
-app.use(helmet({ contentSecurityPolicy: false }));
+// Security headers — allow OAuth/Firebase Auth popups without COOP blocking window.closed
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  })
+);
 
 // CORS — allow local dev + production URLs
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';

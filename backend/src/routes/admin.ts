@@ -324,20 +324,20 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
 
     const { eventId, endTime } = await hardReset(durationMins, name, mode);
 
-    // Delete all anti-cheat logs from DB
-    await prisma.antiCheatEvent.deleteMany({});
-
-    // Reset all user problem progress (clean slate for new event)
-    await prisma.user.updateMany({
-      where: { isAdmin: false },
-      data: {
-        currentProblemId: null,
-        problemAssignedAt: null,
-        problemsAttempted: 0,
-        isDisqualified: false,
-        ap: 0,
-      },
-    });
+    // Run bulk DB operations in parallel to halve reset latency
+    await Promise.all([
+      prisma.antiCheatEvent.deleteMany({}),
+      prisma.user.updateMany({
+        where: { isAdmin: false },
+        data: {
+          currentProblemId: null,
+          problemAssignedAt: null,
+          problemsAttempted: 0,
+          isDisqualified: false,
+          ap: 0,
+        },
+      }),
+    ]);
 
     // Get all users to clear their specific Redis keys and re-assign problems
     const users = await prisma.user.findMany({
@@ -406,27 +406,25 @@ router.get('/events', async (_req: Request, res: Response): Promise<void> => {
 
 router.get('/monitor', async (_req: Request, res: Response): Promise<void> => {
   try {
-    const [users, times, infraStats] = await Promise.all([
+    const queue = getSubmissionQueue();
+
+    // Run all data sources in parallel — including the DB query for isDisqualified.
+    // Previously the DB query was sequential (after the first Promise.all), doubling latency.
+    const [users, times, infraStats, dbUsers, waiting, active, failed] = await Promise.all([
       getAllUsers(),
       getContestTimes(),
       getInfraStats(),
-    ]);
-
-    const queue = getSubmissionQueue();
-    const [waiting, active, failed] = await Promise.all([
+      prisma.user.findMany({ select: { id: true, isDisqualified: true } }),
       queue.getWaitingCount(),
       queue.getActiveCount(),
       queue.getFailedCount(),
     ]);
 
-    const dbUsers = await prisma.user.findMany({
-      select: { id: true, isDisqualified: true }
-    });
     const dqMap = new Map(dbUsers.map(u => [u.id, u.isDisqualified]));
 
     const usersWithDq = users.map(u => ({
       ...u,
-      isDisqualified: dqMap.get(u.userId) || false
+      isDisqualified: dqMap.get(u.userId) || false,
     }));
 
     res.json({
@@ -438,6 +436,7 @@ router.get('/monitor', async (_req: Request, res: Response): Promise<void> => {
       infraStats,
     });
   } catch (err) {
+    logger.error('Monitor fetch failed', { error: err });
     res.status(500).json({ error: 'Failed to fetch monitor data' });
   }
 });

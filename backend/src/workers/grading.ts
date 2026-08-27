@@ -201,14 +201,28 @@ export function startGradingWorker(io: any): Worker {
         },
       });
 
-      // Step 6: Update leaderboard — only add the DELTA above previous AP for this problem
-      // This prevents score manipulation via repeated re-submissions of the same problem.
       const eventId = data.eventId || await getCurrentEventId();
-      const prevApKey = `submission:ap:${data.dbUserId}:${data.problemId}`;
+
+      // If fully solved, mark as solved for problem progression
+      if (pistonResult.passRatio === 1) {
+        await markSolved(data.dbUserId, data.problemId, eventId);
+      }
+
+      // Step 6: Update leaderboard — only add the DELTA above previous AP for this problem in this event
+      // This prevents score manipulation via repeated re-submissions of the same problem.
+      const prevApKey = `submission:ap:${eventId || 'default'}:${data.dbUserId}:${data.problemId}`;
       // NOTE: Use the outer `redis` variable (declared above at worker init), do NOT redeclare.
       const prevApRaw = await redis.get(prevApKey);
       const prevAp = prevApRaw ? parseFloat(prevApRaw) : 0;
       const apDelta = Math.max(0, apAwarded - prevAp);
+
+      // Get accurate count of solved problems
+      const totalSolvedCount = await prisma.solvedProblem.count({
+        where: {
+          userId: data.dbUserId,
+          ...(eventId ? { eventId } : {}),
+        },
+      });
 
       if (apDelta > 0) {
         await redis.set(prevApKey, apAwarded.toString());
@@ -224,7 +238,7 @@ export function startGradingWorker(io: any): Worker {
           eventId || 'default',
           apDelta,      // delta to add to overall
           {
-            problemsSolved: pistonResult.passRatio === 1 ? 1 : 0,
+            problemsSolved: totalSolvedCount,
             lastSubmitTime: Date.now(),
           }
         );
@@ -247,11 +261,19 @@ export function startGradingWorker(io: any): Worker {
           // Register user in event leaderboard if first time
           await registerUserForEvent(data.dbUserId, eventId);
         }
-      }
-
-      // If fully solved, mark as solved for problem progression
-      if (pistonResult.passRatio === 1) {
-        await markSolved(data.dbUserId, data.problemId);
+      } else if (pistonResult.passRatio === 1) {
+        // Even if apDelta is 0 (already had high AP), ensure solved count in meta is updated
+        const currentEventAP = eventId ? await getUserAPByEvent(data.dbUserId, eventId) : 0;
+        await updateLeaderboardScore(
+          data.dbUserId,
+          currentEventAP,
+          eventId || 'default',
+          0,
+          {
+            problemsSolved: totalSolvedCount,
+            lastSubmitTime: Date.now(),
+          }
+        );
       }
 
       // Step 7: Emit final result with AI score

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
-import { getContestMode } from '../services/contestState';
+import { getContestMode, getCurrentEventId } from '../services/contestState';
 
 const router = Router();
 
@@ -40,18 +40,25 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check for duplicate team name
-    const existingTeam = await prisma.team.findFirst({ where: { name } });
+    // Check for duplicate team name (scoped to current event)
+    const currentEventId = await getCurrentEventId();
+    const existingTeam = await prisma.team.findFirst({
+      where: {
+        name,
+        ...(currentEventId ? { eventId: currentEventId } : {}),
+      },
+    });
     if (existingTeam) {
       res.status(400).json({ error: 'A team with this name already exists' });
       return;
     }
 
-    // Create team + add captain as first member
+    // Create team + add captain as first member, linked to current event
     const team = await prisma.team.create({
       data: {
         name,
         captainId: userId,
+        ...(currentEventId ? { eventId: currentEventId } : {}),
         members: {
           create: { userId, status: 'ACCEPTED' },
         },
@@ -85,9 +92,13 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
 router.get('/my-team', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.dbUserId;
-
+    const currentEventId = await getCurrentEventId();
     const membership = await prisma.teamMember.findFirst({
-      where: { userId, status: 'ACCEPTED' },
+      where: {
+        userId,
+        status: 'ACCEPTED',
+        ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
+      },
       include: {
         team: {
           include: {
@@ -126,6 +137,7 @@ router.get('/search-users', async (req: Request, res: Response): Promise<void> =
       return;
     }
 
+    const currentEventId = await getCurrentEventId();
     const users = await prisma.user.findMany({
       where: {
         isAdmin: false,
@@ -139,7 +151,10 @@ router.get('/search-users', async (req: Request, res: Response): Promise<void> =
         name: true,
         email: true,
         teamMembers: {
-          where: { status: 'ACCEPTED' },
+          where: {
+            status: 'ACCEPTED',
+            ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
+          },
           select: { teamId: true },
         },
       },
@@ -175,10 +190,14 @@ router.post('/invite', async (req: Request, res: Response): Promise<void> => {
   try {
     const { inviteeId } = inviteSchema.parse(req.body);
     const userId = req.user!.dbUserId;
+    const currentEventId = await getCurrentEventId();
 
-    // Find the user's team where they are captain
+    // Find the user's team where they are captain for the current event
     const team = await prisma.team.findFirst({
-      where: { captainId: userId },
+      where: {
+        captainId: userId,
+        ...(currentEventId ? { eventId: currentEventId } : {}),
+      },
       include: {
         members: { where: { status: 'ACCEPTED' } },
         _count: { select: { invites: { where: { status: 'PENDING' } } } },
@@ -196,9 +215,13 @@ router.post('/invite', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Check if invitee is already in a team
+    // Check if invitee is already in a team for this event
     const inviteeInTeam = await prisma.teamMember.findFirst({
-      where: { userId: inviteeId, status: 'ACCEPTED' },
+      where: {
+        userId: inviteeId,
+        status: 'ACCEPTED',
+        ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
+      },
     });
     if (inviteeInTeam) {
       res.status(400).json({ error: 'This user is already in a team' });
@@ -306,9 +329,14 @@ router.post('/respond', async (req: Request, res: Response): Promise<void> => {
         return;
       }
 
-      // Check if user is already in another team
+      const currentEventId = await getCurrentEventId();
+      // Check if user is already in another team for this event
       const existingMembership = await prisma.teamMember.findFirst({
-        where: { userId, status: 'ACCEPTED' },
+        where: {
+          userId,
+          status: 'ACCEPTED',
+          ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
+        },
       });
       if (existingMembership) {
         await prisma.teamInvite.update({ where: { id: inviteId }, data: { status: 'REJECTED' } });
@@ -389,9 +417,13 @@ router.post('/respond', async (req: Request, res: Response): Promise<void> => {
 router.get('/invites', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.dbUserId;
-
+    const currentEventId = await getCurrentEventId();
     const invites = await prisma.teamInvite.findMany({
-      where: { inviteeId: userId, status: 'PENDING' },
+      where: {
+        inviteeId: userId,
+        status: 'PENDING',
+        ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
+      },
       include: {
         team: { select: { id: true, name: true } },
         inviter: { select: { id: true, name: true } },

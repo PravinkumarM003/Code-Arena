@@ -36,6 +36,8 @@ interface PendingInvite {
 export default function TeamFormation() {
   const { user } = useAuth();
   const { teamInvites } = useContest();
+  // currentUserDbId is resolved from team membership so we compare DB IDs, not Firebase UIDs
+  const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
   const [teamName, setTeamName] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,13 +52,21 @@ export default function TeamFormation() {
   const fetchMyTeam = useCallback(async () => {
     try {
       const res = await api.get('/teams/my-team');
-      setTeam(res.data.team);
+      const fetchedTeam: Team | null = res.data.team;
+      setTeam(fetchedTeam);
+      // Resolve the current user's DB ID from team membership using email match
+      if (fetchedTeam && user?.email) {
+        const myMembership = fetchedTeam.members.find(
+          (m) => m.user.email === user.email
+        );
+        if (myMembership) setCurrentUserDbId(myMembership.user.id);
+      }
     } catch (err) {
       console.error('Failed to fetch team', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.email]);
 
   const fetchInvites = useCallback(async () => {
     try {
@@ -87,7 +97,11 @@ export default function TeamFormation() {
       setSearching(true);
       try {
         const res = await api.get(`/teams/search-users?q=${encodeURIComponent(searchQuery)}`);
-        setSearchResults(res.data.users || []);
+        // Filter out the current user so the captain cannot invite themselves
+        const results: SearchUser[] = (res.data.users || []).filter(
+          (u: SearchUser) => u.id !== currentUserDbId && u.email !== user?.email
+        );
+        setSearchResults(results);
       } catch (err) {
         console.error('Search failed', err);
       } finally {
@@ -95,14 +109,20 @@ export default function TeamFormation() {
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, currentUserDbId, user?.email]);
 
   const handleCreateTeam = async () => {
     if (!teamName.trim()) return;
     setCreating(true);
     try {
       const res = await api.post('/teams/create', { name: teamName.trim() });
-      setTeam(res.data.team);
+      const newTeam: Team = res.data.team;
+      setTeam(newTeam);
+      // After creating, resolve currentUserDbId from team membership
+      if (user?.email) {
+        const myMembership = newTeam.members.find((m) => m.user.email === user.email);
+        if (myMembership) setCurrentUserDbId(myMembership.user.id);
+      }
       setTeamName('');
       toast.success('Team created! You are the captain 🏆');
     } catch (err: any) {
@@ -130,7 +150,13 @@ export default function TeamFormation() {
     try {
       const res = await api.post('/teams/respond', { inviteId, accept });
       if (accept && res.data.team) {
-        setTeam(res.data.team);
+        const joinedTeam: Team = res.data.team;
+        setTeam(joinedTeam);
+        // Resolve currentUserDbId from the joined team
+        if (user?.email) {
+          const myMembership = joinedTeam.members.find((m) => m.user.email === user.email);
+          if (myMembership) setCurrentUserDbId(myMembership.user.id);
+        }
         toast.success('You joined the team! 🎉');
       } else {
         toast('Invite declined');
@@ -147,6 +173,7 @@ export default function TeamFormation() {
     try {
       await api.post('/teams/leave');
       setTeam(null);
+      setCurrentUserDbId(null);
       toast.success('You left the team');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to leave team');
@@ -159,13 +186,15 @@ export default function TeamFormation() {
     try {
       await api.delete(`/teams/${team.id}`);
       setTeam(null);
+      setCurrentUserDbId(null);
       toast.success('Team disbanded');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to disband team');
     }
   };
 
-  const isCaptain = team?.captainId === user?.uid || (team && team.captain && team.members.some(m => m.user.id === team.captainId));
+  // Compare DB IDs — captainId is a cuid, user.uid is a Firebase UID (different!)
+  const isCaptain = !!team && !!currentUserDbId && team.captainId === currentUserDbId;
 
   if (loading) {
     return (
@@ -286,21 +315,18 @@ export default function TeamFormation() {
             ))}
           </div>
 
-          {/* Team Actions */}
+          {/* Team Actions — shown based on whether the current user is the captain */}
           <div className="flex gap-3">
-            {team.captainId !== team.captain?.id ? null : (
+            {isCaptain ? (
               /* Captain sees disband */
-              team.members.some(m => m.user.id === team.captainId) ? (
-                <button
-                  onClick={handleDisband}
-                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-semibold hover:bg-red-500/20 transition-all"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Disband Team
-                </button>
-              ) : null
-            )}
-            {/* Non-captain sees leave */}
-            {team.members.some(m => m.user.id !== team.captainId) && (
+              <button
+                onClick={handleDisband}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-semibold hover:bg-red-500/20 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Disband Team
+              </button>
+            ) : (
+              /* Non-captain sees leave */
               <button
                 onClick={handleLeave}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/50 text-sm font-semibold hover:bg-white/10 transition-all"
@@ -313,7 +339,7 @@ export default function TeamFormation() {
       )}
 
       {/* Search & Invite Users (Captain only, team not full) */}
-      {team && team.members.length < 4 && (
+      {team && isCaptain && team.members.length < 4 && (
         <div className="glass-card p-6">
           <h3 className="text-white font-bold mb-4 flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-emerald-400" />
