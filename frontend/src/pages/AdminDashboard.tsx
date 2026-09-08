@@ -149,7 +149,10 @@ export default function AdminDashboard() {
   // ── Contest Controls ────────────────────────────────────────────────────────
 
   const handleStart = async () => {
-    if (!confirm(`Start the contest in ${contestMode} mode for all connected participants?`)) return;
+    const confirmMsg = contestState === 'ENDED'
+      ? `Start a NEW contest in ${contestMode} mode? (Previous contest has ended)`
+      : `Start the contest in ${contestMode} mode for all connected participants?`;
+    if (!confirm(confirmMsg)) return;
     setLoading(true);
     try {
       const res = await api.post('/admin/start', { mode: contestMode });
@@ -478,7 +481,7 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <button
                   onClick={handleStart}
-                  disabled={loading || contestState !== 'WAITING'}
+                  disabled={loading || (contestState !== 'WAITING' && contestState !== 'ENDED')}
                   className="btn-primary justify-center py-3 disabled:opacity-40"
                 >
                   {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}

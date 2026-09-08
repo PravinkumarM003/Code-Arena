@@ -22,6 +22,7 @@ import {
   deleteAnnouncement,
   getContestMode,
   setContestMode,
+  resetToWaiting,
 } from '../services/contestState';
 
 // Helper: broadcast contest state change using io attached to req
@@ -48,9 +49,14 @@ router.use(authMiddleware, adminOnly);
 router.post('/start', async (req: Request, res: Response): Promise<void> => {
   try {
     const state = await getContestState();
-    if (state !== 'WAITING') {
+    if (state !== 'WAITING' && state !== 'ENDED') {
       res.status(400).json({ error: `Cannot start from state: ${state}` });
       return;
+    }
+
+    // If starting from ENDED, reset to WAITING first so the flow is clean
+    if (state === 'ENDED') {
+      await resetToWaiting();
     }
 
     const durationMinutes = parseInt(process.env.CONTEST_DURATION_MINUTES || '180');

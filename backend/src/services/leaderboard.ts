@@ -65,10 +65,10 @@ export async function updateLeaderboardScore(
   pipeline.zadd(EVENT_LEADERBOARD_KEY(eventId), newEventAP, userId);
   pipeline.set(EVENT_AP_KEY(eventId, userId), newEventAP.toString());
 
-  // Overall leaderboard (increment by delta)
-  pipeline.zadd(OVERALL_LEADERBOARD_KEY, overallDelta, userId); // this will ADD to existing score
+  // Overall leaderboard (set to new absolute total)
   const currentOverall = parseFloat(await redis.get(OVERALL_AP_KEY(userId)) || '0');
   const newOverall = currentOverall + overallDelta;
+  pipeline.zadd(OVERALL_LEADERBOARD_KEY, newOverall, userId);
   pipeline.set(OVERALL_AP_KEY(userId), newOverall.toString());
 
   // Update user metadata (name, rollNumber etc.)

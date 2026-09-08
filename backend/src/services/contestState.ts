@@ -237,6 +237,21 @@ export async function endContest(): Promise<void> {
   logger.info('Contest ended');
 }
 
+/**
+ * Reset state from ENDED back to WAITING so a new contest can be started
+ * via the normal /admin/start flow. Clears timer keys but preserves
+ * leaderboard data and event history.
+ */
+export async function resetToWaiting(): Promise<void> {
+  const redis = getRedis();
+  await redis.set(KEYS.STATE, 'WAITING');
+  await redis.del(KEYS.END_TIME);
+  await redis.del(KEYS.START_TIME);
+  await redis.del(KEYS.PAUSED_AT);
+  await redis.del(KEYS.ELAPSED_MS);
+  logger.info('Contest state reset to WAITING');
+}
+
 export async function extendContest(extraMinutes: number): Promise<number> {
   const redis = getRedis();
   const state = await getContestState();
