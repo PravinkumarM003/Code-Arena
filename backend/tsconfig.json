@@ -15,7 +15,8 @@
     "declaration": true,
     "sourceMap": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "types": ["node", "jest"]
   },
   "include": [
     "src/**/*"
