@@ -31,31 +31,46 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
 
     const { name } = createTeamSchema.parse(req.body);
     const userId = req.user!.dbUserId;
-    const currentEventId = await getCurrentEventId();
+    let currentEventId = await getCurrentEventId();
+
+    // Verify currentEventId actually exists in the database to prevent foreign key errors
+    if (currentEventId) {
+      const eventExists = await prisma.event.findUnique({ where: { id: currentEventId }, select: { id: true } });
+      if (!eventExists) {
+        currentEventId = null;
+      }
+    }
 
     // Check if user is already in an active team
-    const existingMembership = await prisma.teamMember.findFirst({
-      where: {
-        userId,
-        status: 'ACCEPTED',
-        team: currentEventId
-          ? { eventId: currentEventId }
-          : { OR: [{ eventId: null }, { event: { state: { not: 'ENDED' } } }] },
-      },
+    const userMemberships = await prisma.teamMember.findMany({
+      where: { userId, status: 'ACCEPTED' },
+      include: { team: { select: { id: true, eventId: true } } },
     });
-    if (existingMembership) {
+
+    const isAlreadyInActiveTeam = userMemberships.some((m) => {
+      if (currentEventId) {
+        return m.team.eventId === currentEventId;
+      }
+      return m.team.eventId === null;
+    });
+
+    if (isAlreadyInActiveTeam) {
       res.status(400).json({ error: 'You are already in an active team' });
       return;
     }
 
     // Check for duplicate team name (scoped to current active event)
-    const existingTeam = await prisma.team.findFirst({
-      where: {
-        name,
-        ...(currentEventId ? { eventId: currentEventId } : { event: { state: { not: 'ENDED' } } }),
-      },
+    const teamsWithName = await prisma.team.findMany({
+      where: { name },
+      select: { id: true, eventId: true },
     });
-    if (existingTeam) {
+
+    const isDuplicate = teamsWithName.some((t) => {
+      if (currentEventId) return t.eventId === currentEventId;
+      return t.eventId === null;
+    });
+
+    if (isDuplicate) {
       res.status(400).json({ error: 'A team with this name already exists' });
       return;
     }
@@ -85,8 +100,9 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
       res.status(400).json({ error: 'Invalid team name' });
       return;
     }
-    logger.error('Failed to create team', { error: err });
-    res.status(500).json({ error: 'Failed to create team' });
+    const message = err instanceof Error ? err.message : 'Failed to create team';
+    logger.error('Failed to create team', { error: message });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -99,12 +115,16 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
 router.get('/my-team', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.dbUserId;
-    const currentEventId = await getCurrentEventId();
-    const membership = await prisma.teamMember.findFirst({
+    let currentEventId = await getCurrentEventId();
+    if (currentEventId) {
+      const eventExists = await prisma.event.findUnique({ where: { id: currentEventId }, select: { id: true } });
+      if (!eventExists) currentEventId = null;
+    }
+
+    const memberships = await prisma.teamMember.findMany({
       where: {
         userId,
         status: 'ACCEPTED',
-        ...(currentEventId ? { team: { eventId: currentEventId } } : {}),
       },
       include: {
         team: {
@@ -116,14 +136,22 @@ router.get('/my-team', async (req: Request, res: Response): Promise<void> => {
           },
         },
       },
+      orderBy: { joinedAt: 'desc' },
     });
 
-    if (!membership) {
+    const activeMembership = memberships.find((m) => {
+      if (currentEventId) {
+        return m.team.eventId === currentEventId;
+      }
+      return m.team.eventId === null;
+    });
+
+    if (!activeMembership) {
       res.json({ team: null });
       return;
     }
 
-    res.json({ team: membership.team });
+    res.json({ team: activeMembership.team });
   } catch (err) {
     logger.error('Failed to get team', { error: err });
     res.status(500).json({ error: 'Failed to get team' });
