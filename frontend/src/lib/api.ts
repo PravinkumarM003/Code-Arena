@@ -18,14 +18,43 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Response error handling
+// Shared promise to prevent redundant concurrent token refresh calls
+let refreshPromise: Promise<string | null> | null = null;
+
+const getFreshToken = async (): Promise<string | null> => {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const user = auth.currentUser;
+        if (!user) return null;
+        return await user.getIdToken(true);
+      } catch (err) {
+        console.error('Failed to force refresh Firebase auth token', err);
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+};
+
+// Response interceptor: automatically refresh token & retry on 401
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      // Token expired — Firebase will auto-refresh on next request
-      console.warn('Auth token expired, will refresh on next request');
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      originalRequest._retry = true;
+      const freshToken = await getFreshToken();
+      if (freshToken) {
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${freshToken}`;
+        return api(originalRequest);
+      }
     }
+
     return Promise.reject(error);
   }
 );

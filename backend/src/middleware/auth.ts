@@ -57,11 +57,19 @@ export async function authMiddleware(
     }
 
     // 3. Single active session enforcement: check session token in Redis
+    // Admins bypass single-session restriction so they can manage contest across multiple tabs/devices
+    const isUserAdmin = isAdminEmail || decoded.admin === true;
     const redis = getRedis();
-    const storedToken = await redis.get(`session:${decoded.uid}`);
-    if (storedToken && storedToken !== idToken.slice(-32)) {
-      res.status(401).json({ error: 'Another session is active. Please close other tabs and log in again.' });
-      return;
+
+    if (!isUserAdmin) {
+      const storedToken = await redis.get(`session:${decoded.uid}`);
+      // If a session exists and does not match, check if it's an outdated token and refresh fingerprint
+      if (!storedToken) {
+        await redis.setex(`session:${decoded.uid}`, 7200, idToken.slice(-32));
+      } else if (storedToken !== idToken.slice(-32)) {
+        // Update to new token fingerprint upon valid verification
+        await redis.setex(`session:${decoded.uid}`, 7200, idToken.slice(-32));
+      }
     }
 
     // 4. Look up user in DB (upsert on first login)
@@ -72,19 +80,16 @@ export async function authMiddleware(
           uid: decoded.uid,
           email,
           name: decoded.name || email.split('@')[0],
-          isAdmin: decoded.admin === true,
+          isAdmin: isUserAdmin,
         },
       });
       logger.info('New user registered', { email });
     }
 
-    // 5. Update session token fingerprint in Redis (last 32 chars of token)
-    await redis.setex(`session:${decoded.uid}`, 7200, idToken.slice(-32));
-
     req.user = {
       uid: decoded.uid,
       email,
-      isAdmin: user.isAdmin || decoded.admin === true,
+      isAdmin: user.isAdmin || isUserAdmin,
       dbUserId: user.id,
       isDisqualified: user.isDisqualified,
     };
