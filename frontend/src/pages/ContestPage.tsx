@@ -13,18 +13,38 @@ import { ConfirmModal } from '../components/ConfirmModal';
 export default function ContestPage() {
   const {
     contestState, remainingMs, currentProblem,
-    currentDraft, ap, rank, submissionResult, isJudging, isLocked, eventMode, socket
+    currentDraft, ap, rank, submissionResult, isJudging, isLocked, eventMode, socket,
+    loadNextProblem
   } = useContest();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitCooldown, setSubmitCooldown] = useState(0);
   const [isSkipping, setIsSkipping] = useState(false);
   const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [skipLockoutMs, setSkipLockoutMs] = useState(0);
   const [currentCode, setCurrentCode] = useState('');
   const [currentLanguage, setCurrentLanguage] = useState('CPP');
+  const [isConnected, setIsConnected] = useState(true);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isPaused = contestState === 'PAUSED';
+
+  // Monitor socket connection state
+  useEffect(() => {
+    if (!socket) return;
+    setIsConnected(socket.connected);
+
+    const onConnect = () => setIsConnected(true);
+    const onDisconnect = () => setIsConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, [socket]);
 
   // Enable anti-cheat monitoring
   useAntiCheat(contestState === 'RUNNING' && !isLocked);
@@ -38,6 +58,38 @@ export default function ContestPage() {
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
   }, []);
+
+  // Submit cooldown timer
+  useEffect(() => {
+    if (submitCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setSubmitCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [submitCooldown]);
+
+  // Load draft from localStorage on problem load if available
+  useEffect(() => {
+    if (!currentProblem) return;
+    try {
+      const localDraftRaw = localStorage.getItem(`draft:${currentProblem.id}`);
+      if (localDraftRaw) {
+        const parsed = JSON.parse(localDraftRaw);
+        if (parsed.code) {
+          setCurrentCode(parsed.code);
+          if (parsed.language) setCurrentLanguage(parsed.language);
+          return;
+        }
+      }
+    } catch {
+      // Ignore localStorage error
+    }
+
+    if (currentDraft?.code) {
+      setCurrentCode(currentDraft.code);
+      if (currentDraft.language) setCurrentLanguage(currentDraft.language);
+    }
+  }, [currentProblem?.id, currentDraft]);
 
   // Skip lockout countdown
   useEffect(() => {
@@ -59,12 +111,25 @@ export default function ContestPage() {
     }
   }, [currentProblem?.id]);
 
-  // Debounced auto-save (every 7s)
+  // Dual-tier auto-save: instant localStorage + debounced server sync (5s)
   const handleCodeChange = useCallback(
     (newCode: string, lang: string) => {
       setCurrentCode(newCode);
       setCurrentLanguage(lang);
 
+      // Instant local persistence
+      if (currentProblem) {
+        try {
+          localStorage.setItem(
+            `draft:${currentProblem.id}`,
+            JSON.stringify({ code: newCode, language: lang, updatedAt: Date.now() })
+          );
+        } catch {
+          // Ignore localStorage quota errors
+        }
+      }
+
+      // Debounced server sync
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
       autoSaveTimer.current = setTimeout(async () => {
         if (!currentProblem) return;
@@ -77,18 +142,19 @@ export default function ContestPage() {
         } catch {
           // Silent fail
         }
-      }, 7000);
+      }, 5000);
     },
     [currentProblem]
   );
 
   const handleSubmit = async () => {
-    if (!currentProblem || isSubmitting || isJudging || isLocked) return;
+    if (!currentProblem || isSubmitting || isJudging || isLocked || submitCooldown > 0) return;
     if (!currentCode.trim()) {
       toast.error('Please write some code before submitting.');
       return;
     }
     setIsSubmitting(true);
+    setSubmitCooldown(3); // 3-second cooldown to prevent double submissions
     try {
       await api.post('/submissions/submit', {
         problemId: currentProblem.id,
@@ -231,6 +297,14 @@ export default function ContestPage() {
         </div>
       )}
 
+      {/* Network / Disconnection Warning */}
+      {!isConnected && (
+        <div className="bg-amber-500/20 border-b border-amber-500/30 text-amber-300 text-xs px-4 py-1.5 flex items-center justify-center gap-2 font-medium animate-pulse z-30">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+          <span>Connection interrupted. Reconnecting to CodeArena... Your code is safely saved locally.</span>
+        </div>
+      )}
+
       {/* Top Banner with Contest Stats */}
       <header className="flex items-center justify-between px-4 py-1.5 border-b border-white/10 bg-[#161b22] text-white flex-shrink-0 z-20">
         <div className="flex items-center gap-3">
@@ -301,6 +375,7 @@ export default function ContestPage() {
           draftLanguage={currentDraft?.language}
           onCodeChange={handleCodeChange}
           onSubmitCode={handleSubmit}
+          onNextProblem={loadNextProblem}
           isSubmitting={isSubmitting}
           isJudging={isJudging}
           submissionResult={submissionResult}

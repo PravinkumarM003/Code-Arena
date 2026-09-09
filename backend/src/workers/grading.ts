@@ -3,8 +3,8 @@ import { getRedis } from '../config/redis';
 import { prisma } from '../config/database';
 import { executeCode } from '../services/pistonRunner';
 import { gradeWithAI } from '../services/aiGrader';
-import { updateLeaderboardScore, getUserAPByEvent, registerUserForEvent } from '../services/leaderboard';
-import { markSolved } from '../services/problemAssigner';
+import { updateLeaderboardScore, getUserAPByEvent, registerUserForEvent, getUserTeamLeaderboardEntry } from '../services/leaderboard';
+import { markSolved, assignNextProblem } from '../services/problemAssigner';
 import { logger } from '../config/logger';
 import { updateInfraStats, getCurrentEventId } from '../services/contestState';
 import type { Language } from '@prisma/client';
@@ -100,6 +100,7 @@ export interface SubmissionJobResult {
   aiScore?: number;
   aiReasoning?: string;
   aiSuggestions?: string;
+  nextProblem?: any;
   compileError?: string;
 }
 
@@ -203,9 +204,11 @@ export function startGradingWorker(io: any): Worker {
 
       const eventId = data.eventId || await getCurrentEventId();
 
-      // If fully solved, mark as solved for problem progression
+      // If fully solved, mark as solved for problem progression and assign next problem immediately
+      let nextProblem = null;
       if (pistonResult.passRatio === 1) {
         await markSolved(data.dbUserId, data.problemId, eventId);
+        nextProblem = await assignNextProblem(data.dbUserId);
       }
 
       // Step 6: Update leaderboard — only add the DELTA above previous AP for this problem in this event
@@ -281,14 +284,28 @@ export function startGradingWorker(io: any): Worker {
         aiScore,
         aiReasoning,
         aiSuggestions,
+        nextProblem,
       };
 
       io.to(`user:${data.userId}`).emit('submission:result', finalResult);
+
+      if (nextProblem) {
+        io.to(`user:${data.userId}`).emit('problem:assigned', { problem: nextProblem });
+      }
 
       // Broadcast leaderboard update to all clients (only if AP actually changed)
       if (apDelta > 0) {
         const updatedEventAP = eventId ? await getUserAPByEvent(data.dbUserId, eventId) : apDelta;
         io.emit('leaderboard:update', { userId: data.dbUserId, newAP: updatedEventAP, eventId });
+
+        // If in a team, also emit team update
+        const teamEntry = await getUserTeamLeaderboardEntry(data.dbUserId, eventId);
+        if (teamEntry) {
+          io.emit('team:leaderboard:update', { teamId: teamEntry.teamId, totalAP: teamEntry.totalAP, rank: teamEntry.rank, eventId });
+          for (const member of teamEntry.members) {
+            io.to(`user:${member.userId}`).emit('team:ap:update', { totalAP: teamEntry.totalAP, rank: teamEntry.rank });
+          }
+        }
       }
 
       logger.info('Submission graded', {

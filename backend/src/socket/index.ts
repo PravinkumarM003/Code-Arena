@@ -16,7 +16,7 @@ import {
 } from '../services/contestState';
 import { getCurrentProblem, assignNextProblem } from '../services/problemAssigner';
 import { getDraftFromRedis } from '../services/draftSaver';
-import { getUserAP, getUserRank, registerUser, adjustLeaderboardScore, registerUserForEvent } from '../services/leaderboard';
+import { getUserAP, getUserRank, registerUser, adjustLeaderboardScore, registerUserForEvent, getUserTeamLeaderboardEntry } from '../services/leaderboard';
 
 const COLLEGE_DOMAIN = process.env.COLLEGE_EMAIL_DOMAIN || 'bitsathy.ac.in';
 
@@ -177,7 +177,9 @@ export function setupSocketHandlers(io: SocketServer): void {
           // Apply AP penalty (–10 points) on the current event
           const eventId = await getCurrentEventId();
           await adjustLeaderboardScore(dbUserId, -10, eventId || undefined);
-          await prisma.user.update({ where: { id: dbUserId }, data: { ap: { decrement: 10 } } });
+          const userRecord = await prisma.user.findUnique({ where: { id: dbUserId }, select: { ap: true } });
+          const newDBAP = Math.max(0, (userRecord?.ap || 0) - 10);
+          await prisma.user.update({ where: { id: dbUserId }, data: { ap: newDBAP } });
           const penalizedAP = await getUserAP(dbUserId, eventId);
           socket.emit('anticheat:penalty', { message: 'AP penalty applied for repeated violations.', newAP: penalizedAP });
         } else if (count >= 3) {
@@ -296,11 +298,21 @@ async function handleSessionRestore(
 
     let isLocked = Boolean(dbUser?.isDisqualified && !dbUser?.isAdmin);
 
-    const [ap, rank, mode] = await Promise.all([
+    let [ap, rank, mode] = await Promise.all([
       getUserAP(dbUserId, eventId),
       getUserRank(dbUserId, eventId),
       getContestMode(),
     ]);
+
+    let teamData = null;
+    if (mode === 'GROUP') {
+      const teamEntry = await getUserTeamLeaderboardEntry(dbUserId, eventId);
+      if (teamEntry) {
+        ap = teamEntry.totalAP;
+        rank = teamEntry.rank;
+        teamData = teamEntry;
+      }
+    }
 
     if (state === 'RUNNING' && !isLocked && !problem) {
       let canParticipate = true;
@@ -352,6 +364,7 @@ async function handleSessionRestore(
       eventId,
       isLocked,
       mode,
+      team: teamData,
     });
   } catch (err) {
     logger.error('Session restore error', { uid, error: err });

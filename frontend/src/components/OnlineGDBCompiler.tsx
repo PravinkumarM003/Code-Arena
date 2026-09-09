@@ -49,6 +49,7 @@ interface OnlineGDBCompilerProps {
   isSubmitting?: boolean;
   isJudging?: boolean;
   submissionResult?: SubmissionResultData | null;
+  onNextProblem?: () => void;
   isLocked?: boolean;
   isPaused?: boolean;
 }
@@ -59,6 +60,7 @@ export default function OnlineGDBCompiler({
   draftLanguage,
   onCodeChange,
   onSubmitCode,
+  onNextProblem,
   isSubmitting = false,
   isJudging = false,
   submissionResult = null,
@@ -85,6 +87,13 @@ export default function OnlineGDBCompiler({
   const [activeTab, setActiveTab] = useState<'output' | 'stdin' | 'tests' | 'compile'>('output');
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+
+  // Auto-switch to test results tab when submissionResult arrives
+  useEffect(() => {
+    if (submissionResult) {
+      setActiveTab('tests');
+    }
+  }, [submissionResult]);
 
   // Editor cursor status
   const [cursorPos, setCursorPos] = useState({ line: 1, col: 1 });
@@ -928,6 +937,15 @@ export default function OnlineGDBCompiler({
                         </div>
                       </div>
                     </div>
+
+                    {submissionResult.passRatio === 1 && onNextProblem && (
+                      <button
+                        onClick={onNextProblem}
+                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white text-xs font-bold shadow-lg shadow-emerald-500/30 transition-all flex items-center gap-1.5 cursor-pointer animate-pulse"
+                      >
+                        Next Question <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
 
                   {/* Individual Test Cases */}

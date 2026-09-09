@@ -4,6 +4,13 @@ import { Link } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 
+interface TeamMemberResult {
+  userId: string;
+  name: string;
+  ap: number;
+  problemsSolved: number;
+}
+
 interface ResultData {
   name: string;
   rollNumber: string;
@@ -14,9 +21,13 @@ interface ResultData {
   submissions: Array<{ apAwarded: number; timeTakenSeconds: number; problem: { title: string } }>;
   mode?: 'INDIVIDUAL' | 'GROUP';
   team?: {
+    teamId?: string;
     teamName: string;
     captainName: string;
-    members: Array<{ userId: string; name: string }>;
+    totalAP: number;
+    rank: number;
+    totalProblemsSolved?: number;
+    members: Array<TeamMemberResult>;
   } | null;
 }
 
@@ -50,9 +61,18 @@ export default function ResultsPage() {
     );
   }
 
-  const rankBadge = result.rank <= 3
-    ? ['🥇', '🥈', '🥉'][result.rank - 1]
-    : `#${result.rank}`;
+  const isGroupMode = result.mode === 'GROUP' && Boolean(result.team);
+  const displayAP = Math.max(0, result.ap);
+  const displayRank = result.rank;
+
+  const rankBadge = displayRank <= 3 && displayRank > 0
+    ? ['🥇', '🥈', '🥉'][displayRank - 1]
+    : `#${displayRank}`;
+
+  // Sort team members descending by AP
+  const sortedMembers = result.team?.members
+    ? [...result.team.members].sort((a, b) => b.ap - a.ap)
+    : [];
 
   return (
     <div className="min-h-screen particles-bg">
@@ -65,29 +85,40 @@ export default function ResultsPage() {
         {/* Header */}
         <div className="text-center mb-8 animate-fade-in">
           <div className="text-6xl mb-4">{rankBadge}</div>
-          <h1 className="text-4xl font-black text-white mb-2">{result.name}</h1>
-          <p className="text-white/40">{user?.email}</p>
+          <h1 className="text-4xl font-black text-white mb-2">
+            {isGroupMode ? result.team?.teamName : result.name}
+          </h1>
+          <p className="text-white/40">
+            {isGroupMode ? `Team Member: ${result.name} (${user?.email})` : user?.email}
+          </p>
           {result.rollNumber && <p className="text-white/30 font-mono text-sm mt-1">{result.rollNumber}</p>}
         </div>
 
         {/* Score card */}
-        <div className="glass-card p-8 mb-6 text-center animate-slide-up border-brand-500/20 bg-brand-500/5">
-          <p className="text-white/50 text-sm mb-2">Final Score</p>
-          <p className="text-7xl font-black ap-glow mb-2">{result.ap.toFixed(0)}</p>
-          <p className="text-white/40">Activity Points</p>
+        <div className={`glass-card p-8 mb-6 text-center animate-slide-up ${
+          isGroupMode 
+            ? 'border-purple-500/30 bg-purple-500/10 shadow-[0_0_50px_rgba(168,85,247,0.15)]' 
+            : 'border-brand-500/20 bg-brand-500/5'
+        }`}>
+          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-white/70 text-xs font-semibold uppercase tracking-wider mb-3">
+            {isGroupMode ? <Users className="w-3.5 h-3.5 text-purple-400" /> : <Zap className="w-3.5 h-3.5 text-brand-400" />}
+            {isGroupMode ? 'Team Final Score' : 'Final Score'}
+          </div>
+          <p className="text-7xl font-black ap-glow mb-2">{displayAP.toFixed(0)}</p>
+          <p className="text-white/40">{isGroupMode ? 'Total Group AP' : 'Activity Points'}</p>
 
           <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/10">
             <div>
               <div className="flex items-center justify-center gap-1.5 text-white/40 text-xs mb-1">
                 <Trophy className="w-3.5 h-3.5" />
-                Rank
+                {isGroupMode ? 'Team Rank' : 'Rank'}
               </div>
-              <p className="text-2xl font-black text-white">#{result.rank}</p>
+              <p className="text-2xl font-black text-white">#{displayRank}</p>
             </div>
             <div>
               <div className="flex items-center justify-center gap-1.5 text-white/40 text-xs mb-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Solved
+                {isGroupMode ? 'Team Solved' : 'Solved'}
               </div>
               <p className="text-2xl font-black text-white">{result.problemsSolved}</p>
             </div>
@@ -101,26 +132,63 @@ export default function ResultsPage() {
           </div>
         </div>
 
-        {/* Team Card (GROUP mode only) */}
-        {result.mode === 'GROUP' && result.team && (
+        {/* Team Members Breakdown (GROUP mode only) */}
+        {isGroupMode && result.team && (
           <div className="glass-card p-6 mb-6 animate-slide-up border-purple-500/20 bg-purple-500/5" style={{ animationDelay: '0.05s' }}>
-            <h3 className="font-bold text-white mb-3 flex items-center gap-2">
-              <Users className="w-4 h-4 text-purple-400" />
-              Your Team
-            </h3>
-            <p className="text-2xl font-black text-white mb-1">{result.team.teamName}</p>
-            <p className="text-white/30 text-sm mb-4 flex items-center gap-1">
-              <Crown className="w-3 h-3 text-yellow-400" /> Captain: {result.team.captainName}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {result.team.members.map((m) => (
-                <div key={m.userId} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
-                    <span className="text-white text-[9px] font-bold">{m.name.charAt(0)}</span>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  Team Members
+                </h3>
+                <p className="text-white/40 text-xs mt-0.5">Arranged in descending order by individually secured AP</p>
+              </div>
+              <span className="text-xs text-purple-300 font-medium bg-purple-500/20 border border-purple-500/30 px-2.5 py-1 rounded-full flex items-center gap-1">
+                <Crown className="w-3 h-3 text-yellow-400" /> Captain: {result.team.captainName}
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {sortedMembers.map((m, idx) => {
+                const isCaptain = m.name === result.team?.captainName;
+                const isTopContributor = idx === 0 && sortedMembers.length > 1;
+
+                return (
+                  <div
+                    key={m.userId}
+                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+                      isTopContributor
+                        ? 'bg-purple-500/15 border-purple-500/40 shadow-sm'
+                        : 'bg-white/5 border-white/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs font-bold text-white/60">
+                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white font-medium text-sm">{m.name}</span>
+                          {isCaptain && (
+                            <span className="text-[10px] bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-1.5 py-0.2 rounded">
+                              Captain
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-white/30 text-xs">
+                          {m.problemsSolved ?? 0} {m.problemsSolved === 1 ? 'problem' : 'problems'} solved
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-base font-black ap-glow">
+                        +{Math.max(0, m.ap).toFixed(0)} AP
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-white/70 text-sm">{m.name}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

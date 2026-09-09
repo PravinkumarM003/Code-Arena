@@ -10,6 +10,7 @@ import {
   getCombinedTotal,
   getParticipantCount,
   getTeamLeaderboard,
+  getUserTeamLeaderboardEntry,
 } from '../services/leaderboard';
 import { getContestTimes, getCurrentEventId, getEventHistory, getContestMode } from '../services/contestState';
 import { prisma } from '../config/database';
@@ -190,24 +191,36 @@ router.get('/results', authMiddleware, async (req: Request, res: Response): Prom
       getContestMode(),
     ]);
 
-    // Get team info if user is in a team
-    const teamMembership = user.teamMembers[0];
-    const teamInfo = teamMembership ? {
-      teamName: teamMembership.team.name,
-      captainName: teamMembership.team.captain.name,
-      members: teamMembership.team.members.map((m: { user: { id: string; name: string } }) => ({
-        userId: m.user.id,
-        name: m.user.name,
-      })),
-    } : null;
+    let finalAP = Math.max(0, user.ap);
+    let finalRank = rankOverall;
+    let finalProblemsSolved = user.solvedProblems.length;
+    let teamInfo = null;
+
+    if (mode === 'GROUP') {
+      const teamEntry = await getUserTeamLeaderboardEntry(req.user!.dbUserId, eventId);
+      if (teamEntry) {
+        finalAP = teamEntry.totalAP;
+        finalRank = teamEntry.rank;
+        finalProblemsSolved = teamEntry.totalProblemsSolved;
+        teamInfo = {
+          teamId: teamEntry.teamId,
+          teamName: teamEntry.teamName,
+          captainName: teamEntry.captainName,
+          totalAP: teamEntry.totalAP,
+          rank: teamEntry.rank,
+          totalProblemsSolved: teamEntry.totalProblemsSolved,
+          members: teamEntry.members, // already sorted descending by AP
+        };
+      }
+    }
 
     res.json({
       name: user.name,
       rollNumber: user.rollNumber,
-      ap: user.ap,             // overall AP
-      rank: rankOverall,       // overall rank
+      ap: finalAP,             // Total Team AP in GROUP mode, or individual AP in INDIVIDUAL mode
+      rank: finalRank,         // Team rank in GROUP mode, or individual rank in INDIVIDUAL mode
       currentEventRank: rank,
-      problemsSolved: user.solvedProblems.length,
+      problemsSolved: finalProblemsSolved,
       solvedProblems: user.solvedProblems.map((sp: { problem: { title: string; difficulty: string }; solvedAt: Date }) => ({
         title: sp.problem.title,
         difficulty: sp.problem.difficulty,

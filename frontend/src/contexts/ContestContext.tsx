@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { Socket } from 'socket.io-client';
 import { getSocket, disconnectSocket } from '../lib/socket';
 import { useAuth } from './AuthContext';
+import api from '../lib/api';
 import toast from 'react-hot-toast';
 
 export type ContestState = 'WAITING' | 'RUNNING' | 'PAUSED' | 'ENDED';
@@ -64,6 +65,7 @@ interface ContestContextType {
   teamInvites: Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>;
   eventId: string | null;
   teamRefreshTick: number;
+  loadNextProblem: () => Promise<void>;
 }
 
 const ContestContext = createContext<ContestContextType | null>(null);
@@ -242,7 +244,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           setIsJudging(false);
         });
 
-        sock.on('submission:result', (result: SubmissionResult) => {
+        sock.on('submission:result', (result: SubmissionResult & { nextProblem?: Problem }) => {
           if (!mounted) return;
           setSubmissionResult(result);
           setIsJudging(false);
@@ -250,11 +252,22 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
             setAp((prev) => prev + result.apAwarded);
             toast.success(`+${result.apAwarded.toFixed(0)} AP earned!`);
           }
-          // If fully solved, problem will be updated via session:restored
-          if (result.passRatio === 1) {
-            setTimeout(() => {
-              sock.emit('session:restore');
-            }, 3000);
+          if (result.nextProblem) {
+            setCurrentProblem(result.nextProblem);
+            setCurrentDraft(null);
+            toast.success(`Next Question: "${result.nextProblem.title}" loaded!`, { icon: '🚀' });
+          } else if (result.passRatio === 1) {
+            sock.emit('session:restore');
+          }
+        });
+
+        sock.on('problem:assigned', (data: { problem: Problem | null }) => {
+          if (!mounted) return;
+          if (data.problem) {
+            setCurrentProblem(data.problem);
+            setCurrentDraft(null);
+            setSubmissionResult(null);
+            toast.success(`Next Question: "${data.problem.title}" loaded!`, { icon: '🚀' });
           }
         });
 
@@ -377,6 +390,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         sock.off('anticheat:unlocked');
         sock.off('connect');
         sock.off('reconnect');
+        sock.off('problem:assigned');
         sock.off('connect_error');
         sock.off('team:invite');
         sock.off('team:accepted');
@@ -389,6 +403,22 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  const loadNextProblem = useCallback(async () => {
+    try {
+      const res = await api.post('/problems/next');
+      if (res.data?.problem) {
+        setCurrentProblem(res.data.problem);
+        setCurrentDraft(null);
+        setSubmissionResult(null);
+        toast.success(`Loaded question: ${res.data.problem.title}`, { icon: '🚀' });
+      } else {
+        toast('No more problems available. All questions completed!', { icon: '🎉' });
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to load next problem');
+    }
+  }, []);
 
   return (
     <ContestContext.Provider value={{
@@ -410,6 +440,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       teamInvites,
       eventId,
       teamRefreshTick,
+      loadNextProblem,
     }}>
       {children}
     </ContestContext.Provider>

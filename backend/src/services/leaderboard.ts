@@ -368,6 +368,16 @@ export async function getAllUsers(): Promise<LeaderboardEntry[]> {
  */
 export async function getTeamLeaderboard(eventId: string | null, limit: number = 50): Promise<TeamLeaderboardEntry[]> {
   const redis = getRedis();
+  const cacheKey = `cache:leaderboard:team:${eventId || 'default'}:${limit}`;
+  
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (err) {
+    // Non-critical cache read error - continue to live query
+  }
 
   // Get all teams with their members from DB
   const whereClause = eventId ? { eventId } : {};
@@ -412,7 +422,7 @@ export async function getTeamLeaderboard(eventId: string | null, limit: number =
       const metaRaw = results?.[resultIdx + 1]?.[1] as string | null;
       resultIdx += 2;
 
-      const memberAP = apRaw ? parseFloat(apRaw) : 0;
+      const memberAP = apRaw ? Math.max(0, parseFloat(apRaw)) : 0;
       const meta = metaRaw ? JSON.parse(metaRaw) : {};
       const solved = meta.problemsSolved || 0;
 
@@ -427,12 +437,15 @@ export async function getTeamLeaderboard(eventId: string | null, limit: number =
       });
     }
 
+    // Sort members descending based on AP
+    memberDetails.sort((a, b) => b.ap - a.ap);
+
     entries.push({
       teamId: team.id,
       teamName: team.name,
       captainName: team.captain.name,
       members: memberDetails,
-      totalAP,
+      totalAP: Math.max(0, totalAP),
       totalProblemsSolved,
       rank: 0,
     });
@@ -442,5 +455,24 @@ export async function getTeamLeaderboard(eventId: string | null, limit: number =
   entries.sort((a, b) => b.totalAP - a.totalAP);
 
   // Assign ranks and limit
-  return entries.slice(0, limit).map((e, idx) => ({ ...e, rank: idx + 1 }));
+  const rankedEntries = entries.slice(0, limit).map((e, idx) => ({ ...e, rank: idx + 1 }));
+
+  // Cache in Redis for 2 seconds to absorb concurrent client surges
+  try {
+    await redis.setex(cacheKey, 2, JSON.stringify(rankedEntries));
+  } catch (err) {
+    // Non-critical cache write error
+  }
+
+  return rankedEntries;
 }
+
+/**
+ * Get a team's leaderboard entry for a user in a given event.
+ */
+export async function getUserTeamLeaderboardEntry(userId: string, eventId: string | null): Promise<TeamLeaderboardEntry | null> {
+  const allTeams = await getTeamLeaderboard(eventId, 1000);
+  const teamEntry = allTeams.find(t => t.members.some(m => m.userId === userId));
+  return teamEntry || null;
+}
+

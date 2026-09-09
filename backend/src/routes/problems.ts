@@ -33,6 +33,24 @@ router.get('/current', authMiddleware, requireActiveUser, async (req: Request, r
   }
 });
 
+/**
+ * POST /problems/next
+ * Requests assignment of the next problem immediately.
+ */
+router.post('/next', authMiddleware, requireActiveUser, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { getCurrentProblem, assignNextProblem } = await import('../services/problemAssigner');
+    let problem = await getCurrentProblem(req.user!.dbUserId);
+    if (!problem) {
+      problem = await assignNextProblem(req.user!.dbUserId);
+    }
+    res.json({ success: true, problem });
+  } catch (err) {
+    logger.error('Get next problem error', { error: err });
+    res.status(500).json({ error: 'Failed to get next problem' });
+  }
+});
+
 // ─── Skip problem (student) ──────────────────────────────────────────────────
 
 router.post('/skip', authMiddleware, requireActiveUser, async (req: Request, res: Response): Promise<void> => {

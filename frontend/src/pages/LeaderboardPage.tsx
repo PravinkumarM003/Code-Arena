@@ -327,21 +327,21 @@ export default function LeaderboardPage() {
                     {/* AP */}
                     <div className="text-right flex-shrink-0">
                       <p className={`text-2xl font-black ${style ? style.text : 'ap-glow'}`}>
-                        {team.totalAP.toFixed(0)}
+                        {Math.max(0, team.totalAP).toFixed(0)}
                       </p>
                       <p className="text-white/30 text-xs">team AP</p>
                     </div>
                   </div>
 
-                  {/* Team Members */}
+                  {/* Team Members (sorted by AP desc) */}
                   <div className="flex flex-wrap gap-2 ml-16">
-                    {team.members.map((m) => (
+                    {[...team.members].sort((a, b) => b.ap - a.ap).map((m) => (
                       <div key={m.userId} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-white/50 text-xs">
                         <div className="w-4 h-4 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
                           <span className="text-white text-[8px] font-bold">{[...m.name][0] ?? '?'}</span>
                         </div>
                         <span>{m.name}</span>
-                        <span className="text-white/20">{m.ap.toFixed(0)} AP</span>
+                        <span className="text-white/40 font-mono font-semibold">+{Math.max(0, m.ap).toFixed(0)} AP</span>
                       </div>
                     ))}
                   </div>

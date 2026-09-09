@@ -246,6 +246,12 @@ export async function markSolved(
     await prisma.solvedProblem.create({ data: { userId, problemId, eventId: targetEventId ?? null } });
   }
 
+  // Clear current problem in DB so subsequent lookups do not return the solved problem
+  await prisma.user.update({
+    where: { id: userId },
+    data: { currentProblemId: null, problemAssignedAt: null },
+  });
+
   const redis = getRedis();
   await redis.del(CURRENT_PROBLEM_KEY(userId));
   await redis.del(PROBLEM_ASSIGNED_AT_KEY(userId));
