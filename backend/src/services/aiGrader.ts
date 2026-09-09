@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../config/logger';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-20240307';
+const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5';
 
 export interface AIGradingResult {
   score: number;         // 0.0 – 1.0
@@ -80,7 +80,7 @@ Be strict but fair. A brute-force solution that passes all tests should score ar
     logger.error('AI grading failed', { error: message });
     // Graceful degradation: return neutral score on failure
     return {
-      score: 0.5,
+      score: 0,
       reasoning: 'AI evaluation unavailable.',
     };
   }

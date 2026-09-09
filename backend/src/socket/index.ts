@@ -326,7 +326,7 @@ async function handleSessionRestore(
 
     socket.emit('session:restored', {
       state,
-      remainingMs,
+      remainingMs: times.remainingMs,
       endTime: times.endTime,   // required for client-side countdown timer
       problem: isLocked ? null : problem,
       draft,

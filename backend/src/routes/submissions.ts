@@ -151,7 +151,7 @@ router.post('/submit', async (req: Request, res: Response): Promise<void> => {
 const draftSchema = z.object({
   problemId: z.string(),
   code: z.string().max(100_000),
-  language: z.string(),
+  language: z.enum(['PYTHON', 'JAVA', 'CPP', 'JAVASCRIPT']),
 });
 
 /**

@@ -7,16 +7,8 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import OnlineGDBCompiler from '../components/OnlineGDBCompiler';
 import TeamFormation from './TeamFormation';
-
-
-function formatTime(ms: number): string {
-  if (ms <= 0) return '00:00:00';
-  const totalSeconds = Math.floor(ms / 1000);
-  const h = Math.floor(totalSeconds / 3600);
-  const m = Math.floor((totalSeconds % 3600) / 60);
-  const s = totalSeconds % 60;
-  return [h, m, s].map((v) => String(v).padStart(2, '0')).join(':');
-}
+import { formatTime } from '../lib/formatTime';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 export default function ContestPage() {
   const {
@@ -25,6 +17,8 @@ export default function ContestPage() {
   } = useContest();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSkipping, setIsSkipping] = useState(false);
+  const [showSkipConfirm, setShowSkipConfirm] = useState(false);
   const [skipLockoutMs, setSkipLockoutMs] = useState(0);
   const [currentCode, setCurrentCode] = useState('');
   const [currentLanguage, setCurrentLanguage] = useState('CPP');
@@ -37,6 +31,13 @@ export default function ContestPage() {
 
   // Fullscreen enforcement: enter on RUNNING, exit on PAUSED/ENDED
   const { isFullscreen, enterFullscreen } = useFullscreen(contestState === 'RUNNING' && !isPaused);
+
+  // Cleanup autoSaveTimer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, []);
 
   // Skip lockout countdown
   useEffect(() => {
@@ -83,6 +84,10 @@ export default function ContestPage() {
 
   const handleSubmit = async () => {
     if (!currentProblem || isSubmitting || isJudging || isLocked) return;
+    if (!currentCode.trim()) {
+      toast.error('Please write some code before submitting.');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await api.post('/submissions/submit', {
@@ -98,14 +103,22 @@ export default function ContestPage() {
     }
   };
 
-  const handleSkip = async () => {
-    if (!currentProblem || skipLockoutMs > 0) return;
-    if (!confirm('Skip this problem? You will get 0 AP and cannot return to it.')) return;
+  const handleSkipClick = () => {
+    if (!currentProblem || skipLockoutMs > 0 || isSkipping || isLocked) return;
+    setShowSkipConfirm(true);
+  };
+
+  const handleConfirmSkip = async () => {
+    setShowSkipConfirm(false);
+    if (!currentProblem || skipLockoutMs > 0 || isSkipping || isLocked) return;
+    setIsSkipping(true);
     try {
       await api.post('/problems/skip', { problemId: currentProblem.id });
       toast('Problem skipped. Next problem loading...', { icon: '⏭' });
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Skip failed');
+    } finally {
+      setIsSkipping(false);
     }
   };
 
@@ -173,6 +186,16 @@ export default function ContestPage() {
             <h2 className="text-3xl font-black text-red-400 mb-2">Account Locked</h2>
             <p className="text-white/50">Please contact the administrator.</p>
           </div>
+        </div>
+      )}
+
+      {/* Contest Ended Overlay */}
+      {isEnded && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center text-center p-6 backdrop-blur-md">
+          <div className="text-6xl mb-4">🏁</div>
+          <h2 className="text-3xl font-black text-white mb-2">Contest Ended</h2>
+          <p className="text-white/60 mb-6">Thank you for participating! Results are being finalized.</p>
+          <a href="/leaderboard" className="px-6 py-3 rounded-xl bg-brand-600 text-white font-bold hover:bg-brand-500 transition-colors">View Leaderboard</a>
         </div>
       )}
 
@@ -245,13 +268,13 @@ export default function ContestPage() {
           {/* Skip Button */}
           {currentProblem && (
             <button
-              onClick={handleSkip}
-              disabled={skipLockoutMs > 0 || isLocked}
-              title={skipLockoutMs > 0 ? `Skip available in ${Math.ceil(skipLockoutMs / 60000)}min` : 'Skip problem (0 AP)'}
+              onClick={handleSkipClick}
+              disabled={skipLockoutMs > 0 || isLocked || isSkipping}
+              title={skipLockoutMs > 0 ? `Skip available in ${Math.ceil(skipLockoutMs / 1000)}s` : 'Skip problem (0 AP)'}
               className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-mono text-white/60 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 transition-colors"
             >
               <SkipForward className="w-3 h-3" />
-              {skipLockoutMs > 0 ? `Skip (${Math.ceil(skipLockoutMs / 60000)}m)` : 'Skip'}
+              {skipLockoutMs > 0 ? `Skip (${Math.ceil(skipLockoutMs / 1000)}s)` : 'Skip'}
             </button>
           )}
 
@@ -273,6 +296,17 @@ export default function ContestPage() {
           isPaused={isPaused}
         />
       </div>
+
+      <ConfirmModal
+        isOpen={showSkipConfirm}
+        title="Skip Problem"
+        message="Skip this problem? You will get 0 AP and cannot return to it."
+        confirmLabel="Skip Problem"
+        cancelLabel="Cancel"
+        isDestructive={true}
+        onConfirm={handleConfirmSkip}
+        onCancel={() => setShowSkipConfirm(false)}
+      />
     </div>
   );
 }

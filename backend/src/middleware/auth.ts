@@ -60,9 +60,8 @@ export async function authMiddleware(
     const redis = getRedis();
     const storedToken = await redis.get(`session:${decoded.uid}`);
     if (storedToken && storedToken !== idToken.slice(-32)) {
-      // Token fingerprint mismatch — another session is active
-      // We allow it but flag it (soft enforcement; hard enforcement via disqualification)
-      logger.warn('Multiple sessions detected', { uid: decoded.uid });
+      res.status(401).json({ error: 'Another session is active. Please close other tabs and log in again.' });
+      return;
     }
 
     // 4. Look up user in DB (upsert on first login)

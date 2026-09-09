@@ -34,7 +34,15 @@ const app = express();
 // Security headers — allow OAuth/Firebase Auth popups without COOP blocking window.closed
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://www.gstatic.com"],
+        connectSrc: ["'self'", "wss:", "https:"],
+        imgSrc: ["'self'", "data:", "https:"],
+        frameSrc: ["'none'"],
+      },
+    },
     crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
   })
 );
@@ -45,7 +53,6 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',                    // local Vite dev server
   'http://localhost:4173',                    // local Vite preview
   'https://bitcodearena.vercel.app',          // production frontend
-  'https://code-arena-rqa2.onrender.com',    // Render backend (self + preview)
   FRONTEND_URL,                               // any extra URL from .env
   /\.vercel\.app$/,                           // any Vercel preview deployment
 ];
@@ -118,7 +125,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // ─── Contest Timer (server-side auto-end) ────────────────────────────────────
 
 async function startContestTimerWatcher() {
-  // Check every 30 seconds if the contest timer has expired
+  // Check every 5 seconds if the contest timer has expired
   setInterval(async () => {
     try {
       const { state, remainingMs } = await getContestTimes();
@@ -130,7 +137,7 @@ async function startContestTimerWatcher() {
     } catch (err) {
       logger.error('Timer watcher error', { error: err });
     }
-  }, 30_000);
+  }, 5_000);
 }
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
@@ -178,6 +185,8 @@ async function shutdown(signal: string) {
   try {
     // Flush any pending drafts before shutdown
     await flushDirtyDrafts();
+
+    io.close(); // gracefully closes all WebSocket connections
 
     server.close(async () => {
       await disconnectDatabase();

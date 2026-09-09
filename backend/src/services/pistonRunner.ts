@@ -7,3 +7,7 @@
  * continue to work without modification.
  */
 export { executeCode, TestCaseResult, GradeResult as PistonExecuteResult } from './judge0Runner';
+
+export async function runWithPiston(code: string, language: string, stdin: string) {
+  throw new Error('Piston runner not implemented. Use judge0Runner instead.');
+}

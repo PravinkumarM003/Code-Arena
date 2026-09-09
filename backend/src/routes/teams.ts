@@ -4,6 +4,7 @@ import { authMiddleware } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { logger } from '../config/logger';
 import { getContestMode, getCurrentEventId } from '../services/contestState';
+import { getRedis } from '../config/redis';
 
 const router = Router();
 
@@ -144,7 +145,7 @@ router.get('/search-users', async (req: Request, res: Response): Promise<void> =
         OR: [
           { name: { contains: query } },
           { email: { contains: query } },
-        ],
+        ] as any,
       },
       select: {
         id: true,
@@ -162,7 +163,7 @@ router.get('/search-users', async (req: Request, res: Response): Promise<void> =
     });
 
     // Map and indicate if user is already in a team
-    const results = users.map((u) => ({
+    const results = (users as any[]).map((u) => ({
       id: u.id,
       name: u.name,
       email: u.email,
@@ -188,6 +189,15 @@ const inviteSchema = z.object({
  */
 router.post('/invite', async (req: Request, res: Response): Promise<void> => {
   try {
+    const redis = getRedis();
+    const rl = `ratelimit:team:${req.user!.dbUserId}`;
+    const hits = await redis.incr(rl);
+    if (hits === 1) await redis.expire(rl, 10); // 10s window
+    if (hits > 5) {
+      res.status(429).json({ error: 'Too many requests. Please wait.' });
+      return;
+    }
+
     const { inviteeId } = inviteSchema.parse(req.body);
     const userId = req.user!.dbUserId;
     const currentEventId = await getCurrentEventId();
@@ -294,6 +304,15 @@ const respondSchema = z.object({
  */
 router.post('/respond', async (req: Request, res: Response): Promise<void> => {
   try {
+    const redis = getRedis();
+    const rl = `ratelimit:team:${req.user!.dbUserId}`;
+    const hits = await redis.incr(rl);
+    if (hits === 1) await redis.expire(rl, 10); // 10s window
+    if (hits > 5) {
+      res.status(429).json({ error: 'Too many requests. Please wait.' });
+      return;
+    }
+
     const { inviteId, accept } = respondSchema.parse(req.body);
     const userId = req.user!.dbUserId;
 

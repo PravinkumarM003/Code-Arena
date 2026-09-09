@@ -8,6 +8,9 @@ import {
 import api from '../lib/api';
 import { useContest } from '../contexts/ContestContext';
 import toast from 'react-hot-toast';
+import { formatTime } from '../lib/formatTime';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { PromptModal } from '../components/PromptModal';
 
 interface StartContestResponse {
   success: boolean;
@@ -54,6 +57,7 @@ export default function AdminDashboard() {
   const [users, setUsers] = useState<MonitorUser[]>([]);
   const [infra, setInfra] = useState<{ queue: { waiting: number; active: number; failed: number }; redis: { memory: string }; infra: InfraStats; process: { memoryMB: number; uptime: number } } | null>(null);
   const [announcement, setAnnouncement] = useState('');
+  const [announcing, setAnnouncing] = useState(false);
   const [extendMinutes, setExtendMinutes] = useState(10);
   const [activeTab, setActiveTab] = useState<Tab>('control');
   const [problems, setProblems] = useState<Problem[]>([]);
@@ -64,6 +68,34 @@ export default function AdminDashboard() {
   const [showResetPanel, setShowResetPanel] = useState(false);
   const [contestMode, setContestModeState] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
   const [eventName, setEventName] = useState('');
+
+  // Modals state
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const [promptConfig, setPromptConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message?: string;
+    defaultValue?: string;
+    placeholder?: string;
+    onConfirm: (value: string) => void;
+  }>({
+    isOpen: false,
+    title: '',
+    onConfirm: () => {},
+  });
 
   // New problem form
   const [showProblemForm, setShowProblemForm] = useState(false);
@@ -138,6 +170,7 @@ export default function AdminDashboard() {
       setUsers(data.users || []);
       setContestState(data.contestState);
       setRemainingMs(data.remainingMs);
+      if (data.infraStats) setInfra(prev => prev ? { ...prev, infra: data.infraStats } : prev);
     };
 
     socket.on('admin:incident', handleIncident);
@@ -148,25 +181,9 @@ export default function AdminDashboard() {
     };
   }, [socket]);
 
-  function formatTime(ms: number) {
-    const s = Math.floor(ms / 1000);
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = s % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  }
-
   // ── Contest Controls ────────────────────────────────────────────────────────
 
-  const handleStart = async () => {
-    if (!eventName.trim()) {
-      toast.error('Event name is required to start a contest.');
-      return;
-    }
-    const confirmMsg = contestState === 'ENDED'
-      ? `Start a NEW contest in ${contestMode} mode? (Previous contest has ended)`
-      : `Start the contest in ${contestMode} mode for all connected participants?`;
-    if (!window.confirm(confirmMsg)) return;
+  const executeStart = async () => {
     setLoading(true);
     try {
       const res = await api.post<StartContestResponse>('/admin/start', { name: eventName.trim(), mode: contestMode });
@@ -185,6 +202,27 @@ export default function AdminDashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStart = () => {
+    if (!eventName.trim()) {
+      toast.error('Event name is required to start a contest.');
+      return;
+    }
+    const confirmMsg = contestState === 'ENDED'
+      ? `Start a NEW contest in ${contestMode} mode? (Previous contest has ended)`
+      : `Start the contest in ${contestMode} mode for all connected participants?`;
+
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Start Contest',
+      message: confirmMsg,
+      confirmLabel: 'Start Contest',
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeStart();
+      },
+    });
   };
 
   const handlePause = async () => {
@@ -213,8 +251,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleStop = async () => {
-    if (!confirm('STOP the contest? This cannot be undone.')) return;
+  const executeStop = async () => {
     setLoading(true);
     try {
       await api.post('/admin/stop');
@@ -227,17 +264,34 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleStop = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Stop Contest',
+      message: 'STOP the contest? This cannot be undone.',
+      confirmLabel: 'Stop Contest',
+      isDestructive: true,
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeStop();
+      },
+    });
+  };
+
   const handleExtend = async () => {
+    if (loading) return;
+    setLoading(true);
     try {
       await api.post('/admin/extend', { minutes: extendMinutes });
       toast.success(`Contest extended by ${extendMinutes} minutes!`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to extend');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleSoftReset = async () => {
-    if (!confirm('Soft Reset: restart the timer but keep all current scores and progress?')) return;
+  const executeSoftReset = async () => {
     setLoading(true);
     try {
       await api.post('/admin/reset/soft');
@@ -251,8 +305,20 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleHardReset = async () => {
-    if (!confirm('Hard Reset: create a BRAND NEW event? All scores and problem progress will reset to 0. This cannot be undone.')) return;
+  const handleSoftReset = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Soft Reset',
+      message: 'Soft Reset: restart the timer but keep all current scores and progress?',
+      confirmLabel: 'Restart Timer',
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeSoftReset();
+      },
+    });
+  };
+
+  const executeHardReset = async () => {
     setLoading(true);
     try {
       const res = await api.post('/admin/reset/hard', {
@@ -261,8 +327,9 @@ export default function AdminDashboard() {
       });
       setContestState('RUNNING');
       setShowResetPanel(false);
+      const label = resetEventName.trim() || res.data.eventId;
       setResetEventName('');
-      toast.success(`New event "${res.data.eventId}" started for ${res.data.usersCount} users!`);
+      toast.success(`New event "${label}" started for ${res.data.usersCount} users!`);
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Hard reset failed');
     } finally {
@@ -270,14 +337,31 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleHardReset = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Hard Reset (New Event)',
+      message: 'Hard Reset: create a BRAND NEW event? All scores and problem progress will reset to 0. This cannot be undone.',
+      confirmLabel: 'Create New Event',
+      isDestructive: true,
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeHardReset();
+      },
+    });
+  };
+
   const handleAnnounce = async () => {
-    if (!announcement.trim()) return;
+    if (!announcement.trim() || announcing) return;
+    setAnnouncing(true);
     try {
       await api.post('/admin/announce', { message: announcement });
       toast.success('Announcement sent!');
       setAnnouncement('');
     } catch (err: any) {
       toast.error('Failed to send announcement');
+    } finally {
+      setAnnouncing(false);
     }
   };
 
@@ -291,16 +375,24 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDisqualify = async (userId: string, name: string) => {
-    const reason = prompt(`Reason for disqualifying ${name}?`);
-    if (!reason) return;
-    try {
-      await api.post('/admin/override', { targetUserId: userId, action: 'DISQUALIFY', reason });
-      toast.success(`${name} disqualified`);
-      fetchMonitor();
-    } catch {
-      toast.error('Failed to disqualify');
-    }
+  const handleDisqualify = (userId: string, name: string) => {
+    setPromptConfig({
+      isOpen: true,
+      title: `Disqualify ${name}`,
+      message: `Enter the reason for disqualifying ${name}:`,
+      placeholder: 'Reason for disqualification',
+      onConfirm: async (reason: string) => {
+        setPromptConfig(p => ({ ...p, isOpen: false }));
+        if (!reason.trim()) return;
+        try {
+          await api.post('/admin/override', { targetUserId: userId, action: 'DISQUALIFY', reason: reason.trim() });
+          toast.success(`${name} disqualified`);
+          fetchMonitor();
+        } catch {
+          toast.error('Failed to disqualify');
+        }
+      },
+    });
   };
 
   const handleUnlock = async (userId: string, name: string) => {
@@ -313,19 +405,34 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleAdjustAP = async (userId: string, name: string) => {
-    const deltaStr = prompt(`AP adjustment for ${name} (positive or negative):`);
-    if (!deltaStr) return;
-    const delta = parseFloat(deltaStr);
-    if (isNaN(delta)) { toast.error('Invalid number'); return; }
-    const reason = prompt('Reason for adjustment?') || '';
-    try {
-      await api.post('/admin/override', { targetUserId: userId, action: 'ADJUST_AP', apDelta: delta, reason });
-      toast.success(`AP adjusted for ${name}`);
-      fetchMonitor();
-    } catch {
-      toast.error('Failed to adjust AP');
-    }
+  const handleAdjustAP = (userId: string, name: string) => {
+    setPromptConfig({
+      isOpen: true,
+      title: `Adjust AP for ${name}`,
+      message: `Enter AP delta (positive or negative number):`,
+      placeholder: 'e.g. 50 or -25',
+      onConfirm: (deltaStr: string) => {
+        setPromptConfig(p => ({ ...p, isOpen: false }));
+        const delta = parseFloat(deltaStr);
+        if (isNaN(delta)) { toast.error('Invalid number'); return; }
+
+        setPromptConfig({
+          isOpen: true,
+          title: `Reason for AP adjustment (${name})`,
+          placeholder: 'Reason',
+          onConfirm: async (reason: string) => {
+            setPromptConfig(p => ({ ...p, isOpen: false }));
+            try {
+              await api.post('/admin/override', { targetUserId: userId, action: 'ADJUST_AP', apDelta: delta, reason: reason.trim() || 'Admin adjustment' });
+              toast.success(`AP adjusted for ${name}`);
+              fetchMonitor();
+            } catch {
+              toast.error('Failed to adjust AP');
+            }
+          },
+        });
+      },
+    });
   };
 
   // ── Problem CRUD ────────────────────────────────────────────────────────────
@@ -347,15 +454,24 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteProblem = async (id: string) => {
-    if (!confirm('Deactivate this problem?')) return;
-    try {
-      await api.delete(`/problems/${id}`);
-      toast.success('Problem deactivated');
-      fetchProblems();
-    } catch {
-      toast.error('Failed to delete problem');
-    }
+  const handleDeleteProblem = (id: string) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Deactivate Problem',
+      message: 'Deactivate this problem? It will no longer be assigned to students.',
+      confirmLabel: 'Deactivate',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        try {
+          await api.delete(`/problems/${id}`);
+          toast.success('Problem deactivated');
+          fetchProblems();
+        } catch {
+          toast.error('Failed to delete problem');
+        }
+      },
+    });
   };
 
   const handleExportCSV = async () => {
@@ -608,7 +724,11 @@ export default function AdminDashboard() {
                   <Minus className="w-4 h-4" />
                 </button>
                 <span className="text-3xl font-black text-white text-center w-16">{extendMinutes}</span>
-                <button onClick={() => setExtendMinutes(Math.min(60, extendMinutes + 5))} className="btn-secondary p-2">
+                <button
+                  onClick={() => setExtendMinutes(Math.min(60, extendMinutes + 5))}
+                  disabled={extendMinutes >= 60}
+                  className="btn-secondary p-2 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
                   <Plus className="w-4 h-4" />
                 </button>
                 <span className="text-white/50">minutes</span>
@@ -749,6 +869,7 @@ export default function AdminDashboard() {
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <button
+                            aria-label="Adjust AP"
                             onClick={() => handleAdjustAP(u.userId, u.name)}
                             title="Adjust AP"
                             className="p-1.5 rounded-lg text-white/30 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
@@ -757,6 +878,7 @@ export default function AdminDashboard() {
                           </button>
                           {u.isDisqualified ? (
                             <button
+                              aria-label="Unlock account"
                               onClick={() => handleUnlock(u.userId, u.name)}
                               title="Unlock Account"
                               className="p-1.5 rounded-lg text-white/30 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
@@ -765,6 +887,7 @@ export default function AdminDashboard() {
                             </button>
                           ) : (
                             <button
+                              aria-label="Disqualify participant"
                               onClick={() => handleDisqualify(u.userId, u.name)}
                               title="Disqualify"
                               className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
@@ -1011,6 +1134,26 @@ export default function AdminDashboard() {
           </div>
         )}
       </div>
+
+      <ConfirmModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmLabel={confirmConfig.confirmLabel}
+        isDestructive={confirmConfig.isDestructive}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(c => ({ ...c, isOpen: false }))}
+      />
+
+      <PromptModal
+        isOpen={promptConfig.isOpen}
+        title={promptConfig.title}
+        message={promptConfig.message}
+        defaultValue={promptConfig.defaultValue}
+        placeholder={promptConfig.placeholder}
+        onConfirm={promptConfig.onConfirm}
+        onCancel={() => setPromptConfig(p => ({ ...p, isOpen: false }))}
+      />
     </div>
   );
 }

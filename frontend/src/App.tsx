@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
 import { useContest } from './contexts/ContestContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import HomePage from './pages/HomePage';
 
 
@@ -90,7 +91,11 @@ function ContestRouter() {
       return <HoldingScreen />;
     case 'RUNNING':
     case 'PAUSED':
-      return <ContestPage />;
+      return (
+        <ErrorBoundary>
+          <ContestPage />
+        </ErrorBoundary>
+      );
     case 'ENDED':
       return <EndedScreen />;
     default:
@@ -125,15 +130,24 @@ export default function App() {
           {/* Public */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
-          <Route path="/compiler" element={<CompilerPage />} />
-            <Route path="/" element={<HomePage />} />
+          <Route
+            path="/compiler"
+            element={
+              <ErrorBoundary>
+                <CompilerPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route path="/" element={<HomePage />} />
 
           {/* Protected */}
           <Route
             path="/contest"
             element={
               <ProtectedRoute>
-                <ContestRouter />
+                <ErrorBoundary>
+                  <ContestRouter />
+                </ErrorBoundary>
               </ProtectedRoute>
             }
           />

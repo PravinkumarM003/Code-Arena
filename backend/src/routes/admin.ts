@@ -343,6 +343,7 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
     const { name, durationMinutes, mode } = resetSchema.parse(req.body);
     const durationMins = durationMinutes || parseInt(process.env.CONTEST_DURATION_MINUTES || '180');
 
+    const oldEventId = await getCurrentEventId(); // get BEFORE hardReset() changes it
     const { eventId, endTime } = await hardReset(durationMins, name, mode);
 
     // Run bulk DB operations in parallel to halve reset latency
@@ -366,6 +367,9 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
       select: { id: true, uid: true },
     });
 
+    // Clear per-user Redis problem cache so they get a fresh problem
+    await Promise.all(users.map((u) => resetUserProgress(u.id)));
+
     // Clear anticheat counts and overall AP from Redis explicitly
     const redis = getRedis();
     const keysToDelete = ['leaderboard:overall'];
@@ -373,6 +377,14 @@ router.post('/reset/hard', async (req: Request, res: Response): Promise<void> =>
       keysToDelete.push(`anticheat:count:${u.uid}`);
       keysToDelete.push(`user:ap:overall:${u.id}`);
     });
+
+    if (oldEventId) {
+      keysToDelete.push(`leaderboard:event:${oldEventId}`);
+      users.forEach(u => {
+        keysToDelete.push(`user:ap:event:${oldEventId}:${u.id}`);
+        keysToDelete.push(`user:event:meta:${oldEventId}:${u.id}`);
+      });
+    }
     
     if (keysToDelete.length > 0) {
       // Split into chunks if too many keys

@@ -12,7 +12,7 @@ const KEYS = {
   END_TIME: 'contest:end_time',
   START_TIME: 'contest:start_time',
   PAUSED_AT: 'contest:paused_at',
-  ELAPSED_MS: 'contest:elapsed_ms',       // ms remaining before last pause
+  REMAINING_MS: 'contest:remaining_ms',       // ms remaining before last pause
   CONNECTED_COUNT: 'contest:connected',
   DIFFICULTY_CURVE: 'contest:difficulty_curve',
   ANNOUNCEMENT: 'contest:announcement',
@@ -112,7 +112,7 @@ export async function hardReset(durationMins: number, name?: string, mode?: Cont
   await redis.set(KEYS.STATE, 'RUNNING');
   await redis.set(KEYS.START_TIME, now.toString());
   await redis.set(KEYS.END_TIME, endTime.toString());
-  await redis.set(KEYS.ELAPSED_MS, '0');
+  await redis.set(KEYS.REMAINING_MS, '0');
 
   logger.info('Hard reset complete', { eventId, durationMins });
   return { eventId, endTime };
@@ -130,14 +130,14 @@ export async function softReset(durationMins: number): Promise<number> {
   await redis.set(KEYS.STATE, 'RUNNING');
   await redis.set(KEYS.START_TIME, now.toString());
   await redis.set(KEYS.END_TIME, endTime.toString());
-  await redis.set(KEYS.ELAPSED_MS, '0');
+  await redis.set(KEYS.REMAINING_MS, '0');
 
   // Update DB event to running again
   const eventId = await getCurrentEventId();
   if (eventId) {
     await prisma.event.update({
       where: { id: eventId },
-      data: { state: 'RUNNING', startedAt: new Date() },
+      data: { state: 'RUNNING' },  // preserve original startedAt
     }).catch(() => {});
   }
 
@@ -185,7 +185,7 @@ export async function startContest(durationMinutes: number): Promise<number> {
   await redis.set(KEYS.STATE, 'RUNNING');
   await redis.set(KEYS.START_TIME, now.toString());
   await redis.set(KEYS.END_TIME, endTime.toString());
-  await redis.set(KEYS.ELAPSED_MS, '0');
+  await redis.set(KEYS.REMAINING_MS, '0');
 
   logger.info('Contest started', { durationMinutes, endTime: new Date(endTime).toISOString() });
   return endTime;
@@ -199,7 +199,7 @@ export async function pauseContest(): Promise<{ remainingMs: number }> {
 
   await redis.set(KEYS.STATE, 'PAUSED');
   await redis.set(KEYS.PAUSED_AT, now.toString());
-  await redis.set(KEYS.ELAPSED_MS, (endTime - now).toString());
+  await redis.set(KEYS.REMAINING_MS, (endTime - now).toString());
 
   // Sync DB event state
   const eventId = await getCurrentEventId();
@@ -214,7 +214,7 @@ export async function pauseContest(): Promise<{ remainingMs: number }> {
 export async function resumeContest(): Promise<number> {
   const redis = getRedis();
   const now = Date.now();
-  const remainingMs = parseInt(await redis.get(KEYS.ELAPSED_MS) || '0');
+  const remainingMs = parseInt(await redis.get(KEYS.REMAINING_MS) || '0');
   const newEndTime = now + remainingMs;
 
   await redis.set(KEYS.STATE, 'RUNNING');
@@ -248,21 +248,25 @@ export async function resetToWaiting(): Promise<void> {
   await redis.del(KEYS.END_TIME);
   await redis.del(KEYS.START_TIME);
   await redis.del(KEYS.PAUSED_AT);
-  await redis.del(KEYS.ELAPSED_MS);
+  await redis.del(KEYS.REMAINING_MS);
   logger.info('Contest state reset to WAITING');
 }
 
 export async function extendContest(extraMinutes: number): Promise<number> {
   const redis = getRedis();
   const state = await getContestState();
-  const currentEnd = parseInt(await redis.get(KEYS.END_TIME) || '0');
-  const newEnd = currentEnd + extraMinutes * 60 * 1000;
-  await redis.set(KEYS.END_TIME, newEnd.toString());
+  const extraMs = extraMinutes * 60 * 1000;
 
   if (state === 'PAUSED') {
-    const currentElapsed = parseInt(await redis.get(KEYS.ELAPSED_MS) || '0');
-    await redis.set(KEYS.ELAPSED_MS, (currentElapsed + extraMinutes * 60 * 1000).toString());
+    const currentElapsed = parseInt(await redis.get(KEYS.REMAINING_MS) || '0');
+    const newElapsed = currentElapsed + extraMs;
+    await redis.set(KEYS.REMAINING_MS, newElapsed.toString());
+    return Date.now() + newElapsed; // approximate new end time
   }
+
+  const currentEnd = parseInt(await redis.get(KEYS.END_TIME) || '0');
+  const newEnd = currentEnd + extraMs;
+  await redis.set(KEYS.END_TIME, newEnd.toString());
 
   logger.info('Contest extended', { extraMinutes, newEnd: new Date(newEnd).toISOString() });
   return newEnd;
@@ -279,7 +283,7 @@ export async function getContestTimes(): Promise<{
     KEYS.STATE,
     KEYS.END_TIME,
     KEYS.START_TIME,
-    KEYS.ELAPSED_MS
+    KEYS.REMAINING_MS
   );
 
   const resolvedState = (state as ContestState) || 'WAITING';
@@ -291,8 +295,13 @@ export async function getContestTimes(): Promise<{
   let remainingMs = 0;
   if (resolvedState === 'RUNNING' && endTime) {
     remainingMs = Math.max(0, endTime - Date.now());
-  } else if (resolvedState === 'PAUSED' && elapsedMsStr) {
-    remainingMs = parseInt(elapsedMsStr);
+  } else if (resolvedState === 'PAUSED') {
+    if (elapsedMsStr) {
+      remainingMs = parseInt(elapsedMsStr);
+    } else if (endTime) {
+      // Fallback: use the stored end time (approximate)
+      remainingMs = Math.max(0, endTime - Date.now());
+    }
   }
 
   return {

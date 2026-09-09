@@ -4,6 +4,7 @@ import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useContest } from '../contexts/ContestContext';
 import toast from 'react-hot-toast';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 interface TeamMember {
   id: string;
@@ -35,7 +36,7 @@ interface PendingInvite {
 
 export default function TeamFormation() {
   const { user } = useAuth();
-  const { teamInvites, socket, contestState } = useContest();
+  const { teamInvites, socket, contestState, teamRefreshTick } = useContest();
   // currentUserDbId is resolved from team membership so we compare DB IDs, not Firebase UIDs
   const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
@@ -48,6 +49,20 @@ export default function TeamFormation() {
   const [searching, setSearching] = useState(false);
   const [invitingId, setInvitingId] = useState<string | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+
+  const [confirmConfig, setConfirmConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    isDestructive?: boolean;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
 
   const fetchMyTeam = useCallback(async () => {
     try {
@@ -80,7 +95,7 @@ export default function TeamFormation() {
   useEffect(() => {
     fetchMyTeam();
     fetchInvites();
-  }, [fetchMyTeam, fetchInvites]);
+  }, [fetchMyTeam, fetchInvites, teamRefreshTick]);
 
   // Refresh on socket invite events
   useEffect(() => {
@@ -89,14 +104,14 @@ export default function TeamFormation() {
 
   // Search users
   useEffect(() => {
-    if (searchQuery.length < 2) {
+    if (searchQuery.trim().length < 2) {
       setSearchResults([]);
       return;
     }
     const timer = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await api.get(`/teams/search-users?q=${encodeURIComponent(searchQuery)}`);
+        const res = await api.get(`/teams/search-users?q=${encodeURIComponent(searchQuery.trim())}`);
         // Filter out the current user so the captain cannot invite themselves
         const results: SearchUser[] = (res.data.users || []).filter(
           (u: SearchUser) => u.id !== currentUserDbId && u.email !== user?.email
@@ -139,8 +154,8 @@ export default function TeamFormation() {
     setInvitingId(userId);
     try {
       await api.post('/teams/invite', { inviteeId: userId });
-      toast.success('Invite sent!');
       setSearchResults((prev) => prev.map((u) => u.id === userId ? { ...u, inTeam: true } : u));
+      toast.success('Invite sent!');
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to send invite');
     } finally {
@@ -175,7 +190,7 @@ export default function TeamFormation() {
     }
   };
 
-  const handleLeave = async () => {
+  const executeLeave = async () => {
     try {
       await api.post('/teams/leave');
       setTeam(null);
@@ -186,9 +201,22 @@ export default function TeamFormation() {
     }
   };
 
-  const handleDisband = async () => {
+  const handleLeave = () => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Leave Team',
+      message: 'Are you sure you want to leave the team?',
+      confirmLabel: 'Leave Team',
+      isDestructive: true,
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeLeave();
+      },
+    });
+  };
+
+  const executeDisband = async () => {
     if (!team) return;
-    if (!confirm('Are you sure you want to disband the team? This cannot be undone.')) return;
     try {
       await api.delete(`/teams/${team.id}`);
       setTeam(null);
@@ -197,6 +225,21 @@ export default function TeamFormation() {
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to disband team');
     }
+  };
+
+  const handleDisband = () => {
+    if (!team) return;
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Disband Team',
+      message: 'Are you sure you want to disband the team? This cannot be undone.',
+      confirmLabel: 'Disband Team',
+      isDestructive: true,
+      onConfirm: () => {
+        setConfirmConfig(c => ({ ...c, isOpen: false }));
+        executeDisband();
+      },
+    });
   };
 
   // Compare DB IDs — captainId is a cuid, user.uid is a Firebase UID (different!)
@@ -306,7 +349,7 @@ export default function TeamFormation() {
             {team.members.map((member) => (
               <div key={member.id} className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-xs font-bold">{member.user.name.charAt(0).toUpperCase()}</span>
+                  <span className="text-white text-xs font-bold">{[...member.user.name][0]?.toUpperCase() ?? '?'}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-semibold text-sm truncate">{member.user.name}</p>
@@ -371,7 +414,7 @@ export default function TeamFormation() {
               {searchResults.map((u) => (
                 <div key={u.id} className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3">
                   <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
-                    <span className="text-white text-xs font-bold">{u.name.charAt(0).toUpperCase()}</span>
+                    <span className="text-white text-xs font-bold">{[...u.name][0]?.toUpperCase() ?? '?'}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-white font-semibold text-sm truncate">{u.name}</p>
@@ -394,11 +437,21 @@ export default function TeamFormation() {
             </div>
           )}
 
-          {searchQuery.length >= 2 && searchResults.length === 0 && !searching && (
+          {searchQuery.trim().length >= 2 && searchResults.length === 0 && !searching && (
             <p className="text-white/30 text-sm text-center py-4">No users found</p>
           )}
         </div>
       )}
+
+      <ConfirmModal
+        isOpen={confirmConfig.isOpen}
+        title={confirmConfig.title}
+        message={confirmConfig.message}
+        confirmLabel={confirmConfig.confirmLabel}
+        isDestructive={confirmConfig.isDestructive}
+        onConfirm={confirmConfig.onConfirm}
+        onCancel={() => setConfirmConfig(c => ({ ...c, isOpen: false }))}
+      />
     </div>
   );
 }

@@ -125,7 +125,7 @@ export async function assignNextProblem(userId: string): Promise<ProblemForClien
     testCases: problem.testCases.map((tc) => ({
       id: tc.id,
       input: tc.input,
-      expectedOutput: tc.expectedOutput,
+      expectedOutput: tc.isHidden ? '' : tc.expectedOutput, // NEVER send hidden answers
       isHidden: tc.isHidden,
       points: tc.points,
     })),
@@ -176,7 +176,7 @@ export async function getCurrentProblem(userId: string): Promise<ProblemForClien
     testCases: problem.testCases.map((tc) => ({
       id: tc.id,
       input: tc.input,
-      expectedOutput: tc.expectedOutput,
+      expectedOutput: tc.isHidden ? '' : tc.expectedOutput, // NEVER send hidden answers
       isHidden: tc.isHidden,
       points: tc.points,
     })),
@@ -191,7 +191,13 @@ export async function getCurrentProblem(userId: string): Promise<ProblemForClien
  * Check if skip is allowed (10-minute lockout from assignment).
  */
 export async function canSkip(userId: string): Promise<{ allowed: boolean; remainingLockoutMs: number }> {
-  return { allowed: true, remainingLockoutMs: 0 };
+  const redis = getRedis();
+  const assignedAtStr = await redis.get(PROBLEM_ASSIGNED_AT_KEY(userId));
+  if (!assignedAtStr) return { allowed: true, remainingLockoutMs: 0 };
+  const LOCKOUT_MS = 10 * 60 * 1000;
+  const elapsed = Date.now() - parseInt(assignedAtStr);
+  const remaining = Math.max(0, LOCKOUT_MS - elapsed);
+  return { allowed: remaining === 0, remainingLockoutMs: remaining };
 }
 
 /**

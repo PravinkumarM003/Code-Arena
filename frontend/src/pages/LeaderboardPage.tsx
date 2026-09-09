@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Trophy, Zap, Users, Clock, RefreshCw, Globe, ChevronDown } from 'lucide-react';
 import api from '../lib/api';
 import { getExistingSocket } from '../lib/socket';
+import { formatTime } from '../lib/formatTime';
 
 interface LeaderboardEntry {
   userId: string;
@@ -45,15 +46,6 @@ interface EventSummary {
 
 type Tab = 'current' | 'overall' | string; // string = past event ID
 
-function formatTime(ms: number): string {
-  if (ms <= 0) return '00:00:00';
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return [h, m, sec].map((v) => String(v).padStart(2, '0')).join(':');
-}
-
 const RANK_STYLES: Record<number, { medal: string; bg: string; border: string; text: string }> = {
   1: { medal: '🥇', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400' },
   2: { medal: '🥈', bg: 'bg-slate-400/10', border: 'border-slate-400/30', text: 'text-slate-300' },
@@ -73,6 +65,14 @@ export default function LeaderboardPage() {
   // avoiding stale-closure bugs in setInterval and socket handlers.
   const activeTabRef = useRef<Tab>(activeTab);
   useEffect(() => { activeTabRef.current = activeTab; }, [activeTab]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!showEventDropdown) return;
+    const handler = () => setShowEventDropdown(false);
+    document.addEventListener('click', handler);
+    return () => document.removeEventListener('click', handler);
+  }, [showEventDropdown]);
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -161,7 +161,7 @@ export default function LeaderboardPage() {
           {/* Current Event tab */}
           <button
             id="lb-tab-current"
-            onClick={() => setActiveTab('current')}
+            onClick={() => { setActiveTab('current'); setViewMode('individual'); }}
             className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'current'
                 ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30'
@@ -174,7 +174,7 @@ export default function LeaderboardPage() {
           {/* Overall tab */}
           <button
             id="lb-tab-overall"
-            onClick={() => setActiveTab('overall')}
+            onClick={() => { setActiveTab('overall'); setViewMode('individual'); }}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
               activeTab === 'overall'
                 ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/30'
@@ -190,7 +190,7 @@ export default function LeaderboardPage() {
             <div className="relative">
               <button
                 id="lb-tab-past-events"
-                onClick={() => setShowEventDropdown((v) => !v)}
+                onClick={(e) => { e.stopPropagation(); setShowEventDropdown((v) => !v); }}
                 className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
                   !['current', 'overall'].includes(activeTab)
                     ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/30'
@@ -206,7 +206,7 @@ export default function LeaderboardPage() {
                   {pastEvents.map((ev) => (
                     <button
                       key={ev.id}
-                      onClick={() => { setActiveTab(ev.id); setShowEventDropdown(false); }}
+                      onClick={() => { setActiveTab(ev.id); setShowEventDropdown(false); setViewMode('individual'); }}
                       className={`w-full text-left px-4 py-2.5 text-sm hover:bg-white/5 transition-colors ${
                         activeTab === ev.id ? 'text-amber-400 font-semibold' : 'text-white/70'
                       }`}
@@ -338,7 +338,7 @@ export default function LeaderboardPage() {
                     {team.members.map((m) => (
                       <div key={m.userId} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/5 text-white/50 text-xs">
                         <div className="w-4 h-4 rounded-full bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center">
-                          <span className="text-white text-[8px] font-bold">{m.name.charAt(0)}</span>
+                          <span className="text-white text-[8px] font-bold">{[...m.name][0] ?? '?'}</span>
                         </div>
                         <span>{m.name}</span>
                         <span className="text-white/20">{m.ap.toFixed(0)} AP</span>

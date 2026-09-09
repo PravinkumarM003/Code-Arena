@@ -62,6 +62,8 @@ interface ContestContextType {
   eventMode: 'INDIVIDUAL' | 'GROUP';
   isSessionRestored: boolean;
   teamInvites: Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>;
+  eventId: string | null;
+  teamRefreshTick: number;
 }
 
 const ContestContext = createContext<ContestContextType | null>(null);
@@ -84,6 +86,8 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
   const [eventMode, setEventMode] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
   const [isSessionRestored, setIsSessionRestored] = useState(false);
   const [teamInvites, setTeamInvites] = useState<Array<{ inviteId: string; teamId: string; teamName: string; inviterName: string }>>([]);
+  const [eventId, setEventId] = useState<string | null>(null);
+  const [teamRefreshTick, setTeamRefreshTick] = useState(0);
 
   // Ref to track the socket across closures — prevents the stale-closure bug
   // where cleanup captured `socket === null` because setSocket hadn't run yet.
@@ -96,9 +100,6 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
     const interval = setInterval(() => {
       const remaining = Math.max(0, endTime - Date.now());
       setRemainingMs(remaining);
-      if (remaining <= 0) {
-        setContestState('ENDED');
-      }
     }, 1000);
 
     return () => clearInterval(interval);
@@ -119,7 +120,20 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       setSocket(null);
       setContestState('WAITING');
       setCurrentProblem(null);
+      setCurrentDraft(null);
+      setTeamInvites([]);
       setIsSessionRestored(false);
+      setEventMode('INDIVIDUAL');
+      setAp(0);
+      setRank(0);
+      setAnnouncement(null);
+      setSubmissionResult(null);
+      setIsJudging(false);
+      setIsLocked(false);
+      setEndTime(null);
+      setRemainingMs(0);
+      setConnectedCount(0);
+      setEventId(null);
       return;
     }
 
@@ -141,11 +155,12 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         setSocket(sock);
 
         // ── Contest State ──────────────────────────────────────────────────
-        sock.on('contest:state', (data: { state: ContestState; endTime?: number; remainingMs?: number }) => {
+        sock.on('contest:state', (data: { state: ContestState; endTime?: number; remainingMs?: number; eventId?: string }) => {
           if (!mounted) return;
           setContestState(data.state);
           if (data.endTime) setEndTime(data.endTime);
           if (data.remainingMs !== undefined) setRemainingMs(data.remainingMs);
+          if (data.eventId) setEventId(data.eventId);
         });
 
         sock.on('contest:connected', (data: { count: number }) => {
@@ -167,12 +182,13 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           }
         });
 
-        sock.on('contest:started', (data?: { endTime?: number; remainingMs?: number }) => {
+        sock.on('contest:started', (data?: { endTime?: number; remainingMs?: number; eventId?: string }) => {
           if (!mounted) return;
           // Immediately mark contest as RUNNING so the client navigates to /contest
           setContestState('RUNNING');
           if (data?.endTime) setEndTime(data.endTime);
           if (data?.remainingMs !== undefined) setRemainingMs(data.remainingMs);
+          if (data?.eventId) setEventId(data.eventId);
           // Request our assigned problem from the server
           sock.emit('session:restore');
           toast.success('🚀 Contest has started! Loading your problem...', { duration: 5000 });
@@ -189,6 +205,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           rank: number;
           isLocked?: boolean;
           mode?: 'INDIVIDUAL' | 'GROUP';
+          eventId?: string;
         }) => {
           if (!mounted) return;
           setContestState(data.state);
@@ -203,6 +220,9 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           }
           if (data.mode) {
             setEventMode(data.mode);
+          }
+          if (data.eventId) {
+            setEventId(data.eventId);
           }
           setIsSessionRestored(true);
         });
@@ -297,6 +317,12 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           toast.error(`Team "${data.teamName}" was disbanded`);
         });
 
+        sock.on('team:update', () => {
+          if (!mounted) return;
+          setTeamInvites(prev => [...prev]);
+          setTeamRefreshTick(prev => prev + 1);
+        });
+
         sock.on('contest:mode', (data: { mode: 'INDIVIDUAL' | 'GROUP' }) => {
           if (!mounted) return;
           setEventMode(data.mode);
@@ -380,6 +406,8 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
       isSessionRestored,
       eventMode,
       teamInvites,
+      eventId,
+      teamRefreshTick,
     }}>
       {children}
     </ContestContext.Provider>
