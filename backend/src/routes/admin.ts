@@ -67,48 +67,58 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
     const mode = eventMode || 'INDIVIDUAL';
     const eventId = await createEvent(durationMinutes, eventName, mode);
 
-    // Get all registered users and assign their first problems
-    const usersQuery: any = { isAdmin: false, isDisqualified: false };
-    if (mode === 'GROUP') {
-      usersQuery.teamMembers = { some: { status: 'ACCEPTED' } };
-    }
+    // Persist the contest mode so all socket clients can read it
+    await setContestMode(mode);
 
-    const users = await prisma.user.findMany({
-      where: usersQuery,
-      select: { id: true },
-    });
-
-    logger.info(`Assigning first problems to ${users.length} users...`);
-
-    // Register all users in this event's leaderboard + assign problems in batches
-    const BATCH = 50;
-    for (let i = 0; i < users.length; i += BATCH) {
-      const batch = users.slice(i, i + BATCH);
-      await Promise.all([
-        ...batch.map((u) => assignNextProblem(u.id)),
-        ...batch.map((u) => registerUserForEvent(u.id, eventId)),
-      ]);
-    }
-
-    // Broadcast to all connected clients
+    // Broadcast to all connected clients BEFORE assigning problems
+    // so the UI transitions immediately and the admin sees success right away
     const io = (req as any).io;
     broadcastContestState(io, 'RUNNING', { endTime, remainingMs: durationMinutes * 60 * 1000, eventId, mode });
     io.emit('contest:started', { endTime, eventId, mode });
 
-    await prisma.auditLog.create({
-      data: {
-        adminId: req.user!.dbUserId,
-        action: 'START_CONTEST',
-        detail: `Event "${eventId}" started for ${users.length} users (mode: ${mode})`,
-      },
+    // Count users that will participate (for the success toast count)
+    const usersQuery: any = { isAdmin: false, isDisqualified: false };
+    if (mode === 'GROUP') {
+      usersQuery.teamMembers = { some: { status: 'ACCEPTED' } };
+    }
+    const users = await prisma.user.findMany({ where: usersQuery, select: { id: true } });
+
+    // ✅ Respond IMMEDIATELY — do NOT block on problem assignment
+    // Problem assignment happens in background so the HTTP request never times out
+    res.json({ success: true, endTime, eventId, usersCount: users.length, mode });
+
+    // Assign problems + write audit log asynchronously (fire-and-forget after response)
+    setImmediate(async () => {
+      try {
+        logger.info(`Assigning first problems to ${users.length} users (background)...`);
+        const BATCH = 50;
+        for (let i = 0; i < users.length; i += BATCH) {
+          const batch = users.slice(i, i + BATCH);
+          await Promise.all([
+            ...batch.map((u) => assignNextProblem(u.id)),
+            ...batch.map((u) => registerUserForEvent(u.id, eventId)),
+          ]);
+        }
+        logger.info(`Problem assignment complete for event ${eventId}`);
+
+        await prisma.auditLog.create({
+          data: {
+            adminId: req.user!.dbUserId,
+            action: 'START_CONTEST',
+            detail: `Event "${eventId}" started for ${users.length} users (mode: ${mode})`,
+          },
+        });
+      } catch (assignErr) {
+        logger.error('Background problem assignment/audit failed', { error: assignErr });
+      }
     });
 
-    res.json({ success: true, endTime, eventId, usersCount: users.length, mode });
   } catch (err) {
     logger.error('Failed to start contest', { error: err });
     res.status(500).json({ error: 'Failed to start contest' });
   }
 });
+
 
 /**
  * POST /admin/pause
