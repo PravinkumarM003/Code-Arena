@@ -21,6 +21,7 @@ interface LeaderboardData {
   remainingMs: number;
   leaderboardType: 'event' | 'overall';
   currentEventId: string | null;
+  eventName?: string | null;
   mode?: 'INDIVIDUAL' | 'GROUP';
 }
 
@@ -122,7 +123,7 @@ export default function LeaderboardPage() {
   const pastEvents = events.filter((e) => e.state === 'ENDED');
 
   const activeTabLabel =
-    activeTab === 'current' ? 'Current Event' :
+    activeTab === 'current' ? (data?.eventName ?? 'Current Event') :
     activeTab === 'overall' ? 'Overall' :
     (events.find((e) => e.id === activeTab)?.name ?? 'Past Event');
 

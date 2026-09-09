@@ -68,8 +68,13 @@ router.post('/start', async (req: Request, res: Response): Promise<void> => {
     const eventId = await createEvent(durationMinutes, eventName, mode);
 
     // Get all registered users and assign their first problems
+    const usersQuery: any = { isAdmin: false, isDisqualified: false };
+    if (mode === 'GROUP') {
+      usersQuery.teamMembers = { some: { status: 'ACCEPTED' } };
+    }
+
     const users = await prisma.user.findMany({
-      where: { isAdmin: false, isDisqualified: false },
+      where: usersQuery,
       select: { id: true },
     });
 

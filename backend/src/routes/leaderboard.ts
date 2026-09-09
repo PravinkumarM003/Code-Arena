@@ -43,12 +43,14 @@ router.get('/top', async (req: Request, res: Response): Promise<void> => {
       leaderboardType = 'event';
     }
 
-    // Check if this event is in GROUP mode
+    // Check if this event is in GROUP mode and get name
     let mode = await getContestMode();
+    let eventName = null;
     if (eventId) {
-      const eventRecord = await prisma.event.findUnique({ where: { id: eventId }, select: { mode: true } });
-      if (eventRecord?.mode) {
+      const eventRecord = await prisma.event.findUnique({ where: { id: eventId }, select: { mode: true, name: true } });
+      if (eventRecord) {
         mode = eventRecord.mode as any;
+        eventName = eventRecord.name;
       }
     }
 
@@ -73,6 +75,7 @@ router.get('/top', async (req: Request, res: Response): Promise<void> => {
       contestState: times.state,
       remainingMs: times.remainingMs,
       currentEventId: eventId,
+      eventName,
       leaderboardType,
       mode,
     });

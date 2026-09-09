@@ -12,7 +12,8 @@ const OVERALL_LEADERBOARD_KEY = 'leaderboard:overall';
 const EVENT_AP_KEY = (eventId: string, userId: string) => `user:ap:event:${eventId}:${userId}`;
 const OVERALL_AP_KEY = (userId: string) => `user:ap:overall:${userId}`;
 const USER_META_KEY = (userId: string) => `user:meta:${userId}`;
-const USER_LASTSUBMIT_KEY = (userId: string) => `user:lastsubmit:${userId}`;
+const USER_EVENT_META_KEY = (eventId: string, userId: string) => `user:event:meta:${eventId}:${userId}`;
+const USER_LASTSUBMIT_KEY = (userId: string) => `user:lastsubmit:${userId}`; // fallback or global
 
 // Legacy overall key (kept for backward compat during migration)
 const LEGACY_AP_KEY = (userId: string) => `user:ap:${userId}`;
@@ -50,12 +51,13 @@ export async function updateLeaderboardScore(
   newEventAP: number,         // total AP for this user in this event (absolute)
   eventId: string,            // which event
   overallDelta: number,       // how much to ADD to overall (the delta, not absolute)
-  meta?: {
-    name?: string;
-    rollNumber?: string;
+  eventMeta?: {
     problemsSolved?: number;
     lastSubmitTime?: number;
     currentProblemTitle?: string;
+  },
+  overallMeta?: {
+    problemsSolved?: number;
   }
 ): Promise<void> {
   const redis = getRedis();
@@ -71,15 +73,22 @@ export async function updateLeaderboardScore(
   pipeline.zadd(OVERALL_LEADERBOARD_KEY, newOverall, userId);
   pipeline.set(OVERALL_AP_KEY(userId), newOverall.toString());
 
-  // Update user metadata (name, rollNumber etc.)
-  if (meta) {
+  // Update overall user metadata
+  if (overallMeta) {
     const existing = await redis.get(USER_META_KEY(userId));
     const current = existing ? JSON.parse(existing) : {};
-    pipeline.set(USER_META_KEY(userId), JSON.stringify({ ...current, ...meta }));
+    pipeline.set(USER_META_KEY(userId), JSON.stringify({ ...current, ...overallMeta }));
   }
 
-  if (meta?.lastSubmitTime) {
-    pipeline.set(USER_LASTSUBMIT_KEY(userId), meta.lastSubmitTime.toString());
+  // Update per-event user metadata
+  if (eventMeta && eventId) {
+    const existingEvent = await redis.get(USER_EVENT_META_KEY(eventId, userId));
+    const currentEvent = existingEvent ? JSON.parse(existingEvent) : {};
+    pipeline.set(USER_EVENT_META_KEY(eventId, userId), JSON.stringify({ ...currentEvent, ...eventMeta }));
+    
+    if (eventMeta.lastSubmitTime) {
+      pipeline.set(USER_LASTSUBMIT_KEY(userId), eventMeta.lastSubmitTime.toString());
+    }
   }
 
   await pipeline.exec();
@@ -122,7 +131,7 @@ export async function adjustLeaderboardScore(
 export async function getTopNByEvent(eventId: string, n: number = 50): Promise<LeaderboardEntry[]> {
   const redis = getRedis();
   const results = await redis.zrevrange(EVENT_LEADERBOARD_KEY(eventId), 0, n * 2 - 1, 'WITHSCORES');
-  return _buildEntries(redis, results, n, (userId) => EVENT_AP_KEY(eventId, userId));
+  return _buildEntries(redis, results, n, (userId) => EVENT_AP_KEY(eventId, userId), eventId);
 }
 
 /**
@@ -131,7 +140,7 @@ export async function getTopNByEvent(eventId: string, n: number = 50): Promise<L
 export async function getTopNOverall(n: number = 50): Promise<LeaderboardEntry[]> {
   const redis = getRedis();
   const results = await redis.zrevrange(OVERALL_LEADERBOARD_KEY, 0, n * 2 - 1, 'WITHSCORES');
-  return _buildEntries(redis, results, n, OVERALL_AP_KEY);
+  return _buildEntries(redis, results, n, OVERALL_AP_KEY, null);
 }
 
 /**
@@ -150,7 +159,8 @@ async function _buildEntries(
   redis: ReturnType<typeof getRedis>,
   results: string[],
   n: number,
-  apKeyFn: (userId: string) => string
+  apKeyFn: (userId: string) => string,
+  eventId: string | null
 ): Promise<LeaderboardEntry[]> {
   const userIds: string[] = [];
   const scores: number[] = [];
@@ -159,23 +169,41 @@ async function _buildEntries(
   for (let i = 0; i < results.length; i += 2) {
     userIds.push(results[i]);
     scores.push(parseFloat(results[i + 1]));
+    // Fetch global meta (for name, rollNumber)
     pipeline.get(USER_META_KEY(results[i]));
+    // Fetch event meta if needed
+    if (eventId) {
+      pipeline.get(USER_EVENT_META_KEY(eventId, results[i]));
+    }
   }
 
   const metas = await pipeline.exec();
 
   const entries: LeaderboardEntry[] = userIds.map((userId, idx) => {
-    const metaRaw = metas?.[idx]?.[1] as string | null;
-    const metaObj = metaRaw ? JSON.parse(metaRaw) : {};
+    // If eventId is present, we did 2 GETs per user, otherwise 1 GET per user
+    const metaOffset = eventId ? idx * 2 : idx;
+    
+    const globalMetaRaw = metas?.[metaOffset]?.[1] as string | null;
+    const globalMeta = globalMetaRaw ? JSON.parse(globalMetaRaw) : {};
+    
+    let eventMeta = {};
+    if (eventId) {
+      const eventMetaRaw = metas?.[metaOffset + 1]?.[1] as string | null;
+      eventMeta = eventMetaRaw ? JSON.parse(eventMetaRaw) : {};
+    }
+    
+    // Merge: eventMeta overrides globalMeta for solved count etc.
+    const mergedMeta = { ...globalMeta, ...eventMeta };
+
     return {
       userId,
       ap: scores[idx],
-      name: metaObj.name || 'Unknown',
-      rollNumber: metaObj.rollNumber || '',
+      name: mergedMeta.name || 'Unknown',
+      rollNumber: mergedMeta.rollNumber || '',
       rank: 0,
-      problemsSolved: metaObj.problemsSolved || 0,
-      currentProblemTitle: metaObj.currentProblemTitle,
-      lastSubmitTime: metaObj.lastSubmitTime,
+      problemsSolved: mergedMeta.problemsSolved || 0,
+      currentProblemTitle: mergedMeta.currentProblemTitle,
+      lastSubmitTime: mergedMeta.lastSubmitTime,
     };
   });
 
@@ -374,9 +402,16 @@ export async function getTeamLeaderboard(eventId: string | null, limit: number =
       }
 
       // Get problems solved from meta
-      const metaRaw = await redis.get(USER_META_KEY(member.userId));
-      const meta = metaRaw ? JSON.parse(metaRaw) : {};
-      const solved = meta.problemsSolved || 0;
+      let solved = 0;
+      if (eventId) {
+        const eventMetaRaw = await redis.get(USER_EVENT_META_KEY(eventId, member.userId));
+        const eventMeta = eventMetaRaw ? JSON.parse(eventMetaRaw) : {};
+        solved = eventMeta.problemsSolved || 0;
+      } else {
+        const metaRaw = await redis.get(USER_META_KEY(member.userId));
+        const meta = metaRaw ? JSON.parse(metaRaw) : {};
+        solved = meta.problemsSolved || 0;
+      }
 
       totalAP += memberAP;
       totalProblemsSolved += solved;

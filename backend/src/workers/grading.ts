@@ -217,11 +217,12 @@ export function startGradingWorker(io: any): Worker {
       const apDelta = Math.max(0, apAwarded - prevAp);
 
       // Get accurate count of solved problems
-      const totalSolvedCount = await prisma.solvedProblem.count({
-        where: {
-          userId: data.dbUserId,
-          ...(eventId ? { eventId } : {}),
-        },
+      const eventSolvedCount = eventId ? await prisma.solvedProblem.count({
+        where: { userId: data.dbUserId, eventId }
+      }) : 0;
+      
+      const overallSolvedCount = await prisma.solvedProblem.count({
+        where: { userId: data.dbUserId }
       });
 
       if (apDelta > 0) {
@@ -237,10 +238,8 @@ export function startGradingWorker(io: any): Worker {
           newEventAP,   // absolute event total
           eventId || 'default',
           apDelta,      // delta to add to overall
-          {
-            problemsSolved: totalSolvedCount,
-            lastSubmitTime: Date.now(),
-          }
+          { problemsSolved: eventSolvedCount, lastSubmitTime: Date.now() },
+          { problemsSolved: overallSolvedCount }
         );
 
         // Update AP in TiDB (overall AP = sum across all events)
@@ -269,10 +268,8 @@ export function startGradingWorker(io: any): Worker {
           currentEventAP,
           eventId || 'default',
           0,
-          {
-            problemsSolved: totalSolvedCount,
-            lastSubmitTime: Date.now(),
-          }
+          { problemsSolved: eventSolvedCount, lastSubmitTime: Date.now() },
+          { problemsSolved: overallSolvedCount }
         );
       }
 

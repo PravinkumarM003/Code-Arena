@@ -9,6 +9,15 @@ import api from '../lib/api';
 import { useContest } from '../contexts/ContestContext';
 import toast from 'react-hot-toast';
 
+interface StartContestResponse {
+  success: boolean;
+  endTime?: number;
+  eventId?: string;
+  usersCount: number;
+  mode: 'INDIVIDUAL' | 'GROUP';
+  error?: string;
+}
+
 type ContestState = 'WAITING' | 'RUNNING' | 'PAUSED' | 'ENDED';
 
 interface MonitorUser {
@@ -54,6 +63,7 @@ export default function AdminDashboard() {
   const [resetEventName, setResetEventName] = useState('');
   const [showResetPanel, setShowResetPanel] = useState(false);
   const [contestMode, setContestModeState] = useState<'INDIVIDUAL' | 'GROUP'>('INDIVIDUAL');
+  const [eventName, setEventName] = useState('');
 
   // New problem form
   const [showProblemForm, setShowProblemForm] = useState(false);
@@ -149,15 +159,27 @@ export default function AdminDashboard() {
   // ── Contest Controls ────────────────────────────────────────────────────────
 
   const handleStart = async () => {
+    if (!eventName.trim()) {
+      toast.error('Event name is required to start a contest.');
+      return;
+    }
     const confirmMsg = contestState === 'ENDED'
       ? `Start a NEW contest in ${contestMode} mode? (Previous contest has ended)`
       : `Start the contest in ${contestMode} mode for all connected participants?`;
-    if (!confirm(confirmMsg)) return;
+    if (!window.confirm(confirmMsg)) return;
     setLoading(true);
     try {
-      const res = await api.post('/admin/start', { mode: contestMode });
-      setContestState('RUNNING');
-      toast.success(`Contest started for ${res.data.usersCount} users (${contestMode} mode)!`);
+      const res = await api.post<StartContestResponse>('/admin/start', { name: eventName.trim(), mode: contestMode });
+      const data = res.data;
+      if (data.success) {
+        setContestState('RUNNING');
+        if (data.endTime) {
+          setRemainingMs(data.endTime - Date.now());
+        }
+        toast.success(`Contest started for ${data.usersCount} users (${contestMode} mode)!`);
+      } else {
+        toast.error(data.error || 'Failed to start');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to start');
     } finally {
@@ -475,6 +497,19 @@ export default function AdminDashboard() {
                       Teams of 4
                     </span>
                   )}
+                </div>
+              )}
+
+              {/* Event Name Input */}
+              {(contestState === 'WAITING' || contestState === 'ENDED') && (
+                <div className="mb-4">
+                  <input
+                    type="text"
+                    value={eventName}
+                    onChange={(e) => setEventName(e.target.value)}
+                    placeholder="Enter event name (e.g. CodeArena 2026 Finals)"
+                    className="input w-full text-sm font-semibold"
+                  />
                 </div>
               )}
 

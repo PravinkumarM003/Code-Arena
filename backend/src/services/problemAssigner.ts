@@ -191,19 +191,7 @@ export async function getCurrentProblem(userId: string): Promise<ProblemForClien
  * Check if skip is allowed (10-minute lockout from assignment).
  */
 export async function canSkip(userId: string): Promise<{ allowed: boolean; remainingLockoutMs: number }> {
-  const redis = getRedis();
-  const assignedAtStr = await redis.get(PROBLEM_ASSIGNED_AT_KEY(userId));
-
-  if (!assignedAtStr) {
-    return { allowed: true, remainingLockoutMs: 0 };
-  }
-
-  const assignedAt = parseInt(assignedAtStr);
-  const lockoutMs = (parseInt(process.env.SKIP_LOCKOUT_MINUTES || '10')) * 60 * 1000;
-  const elapsed = Date.now() - assignedAt;
-  const remainingLockoutMs = Math.max(0, lockoutMs - elapsed);
-
-  return { allowed: remainingLockoutMs === 0, remainingLockoutMs };
+  return { allowed: true, remainingLockoutMs: 0 };
 }
 
 /**

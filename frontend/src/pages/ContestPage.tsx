@@ -6,6 +6,7 @@ import { useAntiCheat } from '../hooks/useAntiCheat';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import OnlineGDBCompiler from '../components/OnlineGDBCompiler';
+import TeamFormation from './TeamFormation';
 
 
 function formatTime(ms: number): string {
@@ -20,7 +21,7 @@ function formatTime(ms: number): string {
 export default function ContestPage() {
   const {
     contestState, remainingMs, currentProblem,
-    currentDraft, ap, rank, submissionResult, isJudging, isLocked
+    currentDraft, ap, rank, submissionResult, isJudging, isLocked, eventMode
   } = useContest();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -113,6 +114,21 @@ export default function ContestPage() {
 
   // While contest is running but problem hasn't loaded yet (gap between contest:started and session:restored)
   if (contestState === 'RUNNING' && !currentProblem && !isLocked) {
+    // If it's a GROUP contest and they don't have a problem, they likely need to form a team first.
+    if (eventMode === 'GROUP') {
+      return (
+        <div className="h-screen bg-surface-950 overflow-y-auto py-12 custom-scrollbar">
+          <div className="max-w-4xl mx-auto px-4">
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-4 mb-6 text-center animate-fade-in">
+              <h2 className="text-xl font-bold text-purple-400 mb-1">Group Event Started!</h2>
+              <p className="text-white/60 text-sm">Please form or join a team below. Once your team is ready, you will automatically be assigned your first problem.</p>
+            </div>
+            <TeamFormation />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-surface-950 text-white gap-6">
         <div className="flex flex-col items-center gap-4 glass-card p-10 max-w-sm w-full text-center">

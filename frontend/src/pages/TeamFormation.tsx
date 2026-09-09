@@ -35,7 +35,7 @@ interface PendingInvite {
 
 export default function TeamFormation() {
   const { user } = useAuth();
-  const { teamInvites } = useContest();
+  const { teamInvites, socket, contestState } = useContest();
   // currentUserDbId is resolved from team membership so we compare DB IDs, not Firebase UIDs
   const [currentUserDbId, setCurrentUserDbId] = useState<string | null>(null);
   const [team, setTeam] = useState<Team | null>(null);
@@ -125,6 +125,9 @@ export default function TeamFormation() {
       }
       setTeamName('');
       toast.success('Team created! You are the captain 🏆');
+      if (contestState === 'RUNNING') {
+        socket?.emit('session:restore');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create team');
     } finally {
@@ -158,6 +161,9 @@ export default function TeamFormation() {
           if (myMembership) setCurrentUserDbId(myMembership.user.id);
         }
         toast.success('You joined the team! 🎉');
+        if (contestState === 'RUNNING') {
+          socket?.emit('session:restore');
+        }
       } else {
         toast('Invite declined');
       }

@@ -287,26 +287,36 @@ async function handleSessionRestore(
 
     let problem = await getCurrentProblem(dbUserId);
 
-    const isLocked = Boolean(dbUser?.isDisqualified && !dbUser?.isAdmin);
-
-    if (state === 'RUNNING' && !isLocked && !problem) {
-      problem = await assignNextProblem(dbUserId);
-      if (problem && eventId) {
-        await registerUserForEvent(dbUserId, eventId);
-      }
-    }
-
-    if (isLocked) {
-      socket.emit('anticheat:locked', {
-        message: 'Account locked due to violations. Please contact the administrator.',
-      });
-    }
+    let isLocked = Boolean(dbUser?.isDisqualified && !dbUser?.isAdmin);
 
     const [ap, rank, mode] = await Promise.all([
       getUserAP(dbUserId, eventId),
       getUserRank(dbUserId, eventId),
       getContestMode(),
     ]);
+
+    if (state === 'RUNNING' && !isLocked && !problem) {
+      let canParticipate = true;
+      if (mode === 'GROUP') {
+        const teamMember = await prisma.teamMember.findFirst({
+          where: { userId: dbUserId, status: 'ACCEPTED' }
+        });
+        if (!teamMember) canParticipate = false;
+      }
+
+      if (canParticipate) {
+        problem = await assignNextProblem(dbUserId);
+        if (problem && eventId) {
+          await registerUserForEvent(dbUserId, eventId);
+        }
+      }
+    }
+
+    if (isLocked) {
+      socket.emit('anticheat:locked', {
+        message: 'Account locked or you do not meet the criteria to participate. Please contact the administrator.',
+      });
+    }
 
     // Get code draft if there is a current problem
     let draft = null;

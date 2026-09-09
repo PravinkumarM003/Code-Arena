@@ -4,6 +4,8 @@ import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
 import { useContest } from './contexts/ContestContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import HomePage from './pages/HomePage';
+
 
 // ── Eager: shown on first load — must NOT be lazy ──────────────────────────
 import LoginPage from './pages/LoginPage';
@@ -115,10 +117,11 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/leaderboard" element={<LeaderboardPage />} />
           <Route path="/compiler" element={<CompilerPage />} />
+            <Route path="/" element={<HomePage />} />
 
           {/* Protected */}
           <Route
-            path="/"
+            path="/contest"
             element={
               <ProtectedRoute>
                 <ContestRouter />

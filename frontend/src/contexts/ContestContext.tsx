@@ -230,7 +230,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           if (result.passRatio === 1) {
             setTimeout(() => {
               sock.emit('session:restore');
-            }, 500);
+            }, 3000);
           }
         });
 
