@@ -140,9 +140,6 @@ export default function TeamFormation() {
       }
       setTeamName('');
       toast.success('Team created! You are the captain 🏆');
-      if (contestState === 'RUNNING') {
-        socket?.emit('session:restore');
-      }
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Failed to create team');
     } finally {
@@ -176,9 +173,6 @@ export default function TeamFormation() {
           if (myMembership) setCurrentUserDbId(myMembership.user.id);
         }
         toast.success('You joined the team! 🎉');
-        if (contestState === 'RUNNING') {
-          socket?.emit('session:restore');
-        }
       } else {
         toast('Invite declined');
       }
@@ -363,6 +357,22 @@ export default function TeamFormation() {
               </div>
             ))}
           </div>
+
+          {/* Enter Arena button if contest is running */}
+          {contestState === 'RUNNING' && (
+            <div className="mb-4">
+              <button
+                onClick={() => {
+                  toast.success('Entering Arena... Loading problem');
+                  socket?.emit('session:restore');
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>🚀</span>
+                <span>Enter Arena & Start Solving</span>
+              </button>
+            </div>
+          )}
 
           {/* Team Actions — shown based on whether the current user is the captain */}
           <div className="flex gap-3">

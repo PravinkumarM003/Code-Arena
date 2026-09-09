@@ -155,12 +155,13 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         setSocket(sock);
 
         // ── Contest State ──────────────────────────────────────────────────
-        sock.on('contest:state', (data: { state: ContestState; endTime?: number; remainingMs?: number; eventId?: string }) => {
+        sock.on('contest:state', (data: { state: ContestState; endTime?: number; remainingMs?: number; eventId?: string; mode?: 'INDIVIDUAL' | 'GROUP' }) => {
           if (!mounted) return;
           setContestState(data.state);
           if (data.endTime) setEndTime(data.endTime);
           if (data.remainingMs !== undefined) setRemainingMs(data.remainingMs);
           if (data.eventId) setEventId(data.eventId);
+          if (data.mode) setEventMode(data.mode);
         });
 
         sock.on('contest:connected', (data: { count: number }) => {
@@ -182,13 +183,14 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           }
         });
 
-        sock.on('contest:started', (data?: { endTime?: number; remainingMs?: number; eventId?: string }) => {
+        sock.on('contest:started', (data?: { endTime?: number; remainingMs?: number; eventId?: string; mode?: 'INDIVIDUAL' | 'GROUP' }) => {
           if (!mounted) return;
           // Immediately mark contest as RUNNING so the client navigates to /contest
           setContestState('RUNNING');
           if (data?.endTime) setEndTime(data.endTime);
           if (data?.remainingMs !== undefined) setRemainingMs(data.remainingMs);
           if (data?.eventId) setEventId(data.eventId);
+          if (data?.mode) setEventMode(data.mode);
           // Request our assigned problem from the server
           sock.emit('session:restore');
           toast.success('🚀 Contest has started! Loading your problem...', { duration: 5000 });

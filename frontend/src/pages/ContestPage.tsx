@@ -13,7 +13,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 export default function ContestPage() {
   const {
     contestState, remainingMs, currentProblem,
-    currentDraft, ap, rank, submissionResult, isJudging, isLocked, eventMode
+    currentDraft, ap, rank, submissionResult, isJudging, isLocked, eventMode, socket
   } = useContest();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -158,6 +158,18 @@ export default function ContestPage() {
           </div>
           <div className="w-full bg-white/5 rounded-full h-1 overflow-hidden">
             <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full animate-pulse w-2/3" />
+          </div>
+
+          <div className="flex flex-col gap-2 w-full pt-2">
+            <button
+              onClick={() => {
+                socket?.emit('session:restore');
+                toast.success('Refreshing assignment status...');
+              }}
+              className="w-full py-2.5 px-4 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-semibold transition-all cursor-pointer"
+            >
+              🔄 Refresh Assignment
+            </button>
           </div>
         </div>
       </div>
