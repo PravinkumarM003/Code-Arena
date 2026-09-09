@@ -167,11 +167,13 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
           }
         });
 
-        sock.on('contest:started', () => {
+        sock.on('contest:started', (data?: { endTime?: number; remainingMs?: number }) => {
           if (!mounted) return;
-          // Contest just started — immediately request our assigned problem from the server.
-          // The backend has already run assignNextProblem() for all users in admin /start.
-          // Without this emit, the problem never loads for already-connected users.
+          // Immediately mark contest as RUNNING so the client navigates to /contest
+          setContestState('RUNNING');
+          if (data?.endTime) setEndTime(data.endTime);
+          if (data?.remainingMs !== undefined) setRemainingMs(data.remainingMs);
+          // Request our assigned problem from the server
           sock.emit('session:restore');
           toast.success('🚀 Contest has started! Loading your problem...', { duration: 5000 });
         });

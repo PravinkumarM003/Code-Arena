@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
@@ -46,12 +46,21 @@ function PageLoader() {
 function ContestRouter() {
   const { isAdmin } = useAuth();
   const { contestState, isLocked, isSessionRestored } = useContest();
+  // Allow up to 6 seconds for session restore before falling through to avoid infinite blank page
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (isSessionRestored) return;
+    const t = setTimeout(() => setTimedOut(true), 6000);
+    return () => clearTimeout(t);
+  }, [isSessionRestored]);
 
   if (isAdmin) {
     return <AdminDashboard />;
   }
 
-  if (!isSessionRestored) {
+  // Show spinner only while waiting for first session restore, with a max of 6s
+  if (!isSessionRestored && !timedOut) {
     return <PageLoader />;
   }
 
