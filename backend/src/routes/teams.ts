@@ -31,22 +31,28 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
 
     const { name } = createTeamSchema.parse(req.body);
     const userId = req.user!.dbUserId;
+    const currentEventId = await getCurrentEventId();
 
-    // Check if user is already in a team
+    // Check if user is already in an active team
     const existingMembership = await prisma.teamMember.findFirst({
-      where: { userId, status: 'ACCEPTED' },
+      where: {
+        userId,
+        status: 'ACCEPTED',
+        team: currentEventId
+          ? { eventId: currentEventId }
+          : { OR: [{ eventId: null }, { event: { state: { not: 'ENDED' } } }] },
+      },
     });
     if (existingMembership) {
-      res.status(400).json({ error: 'You are already in a team' });
+      res.status(400).json({ error: 'You are already in an active team' });
       return;
     }
 
-    // Check for duplicate team name (scoped to current event)
-    const currentEventId = await getCurrentEventId();
+    // Check for duplicate team name (scoped to current active event)
     const existingTeam = await prisma.team.findFirst({
       where: {
         name,
-        ...(currentEventId ? { eventId: currentEventId } : {}),
+        ...(currentEventId ? { eventId: currentEventId } : { event: { state: { not: 'ENDED' } } }),
       },
     });
     if (existingTeam) {
@@ -466,14 +472,21 @@ router.get('/invites', async (req: Request, res: Response): Promise<void> => {
 router.post('/leave', async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = req.user!.dbUserId;
+    const currentEventId = await getCurrentEventId();
 
     const membership = await prisma.teamMember.findFirst({
-      where: { userId, status: 'ACCEPTED' },
+      where: {
+        userId,
+        status: 'ACCEPTED',
+        team: currentEventId
+          ? { eventId: currentEventId }
+          : { OR: [{ eventId: null }, { event: { state: { not: 'ENDED' } } }] },
+      },
       include: { team: true },
     });
 
     if (!membership) {
-      res.status(400).json({ error: 'You are not in a team' });
+      res.status(400).json({ error: 'You are not in an active team' });
       return;
     }
 
