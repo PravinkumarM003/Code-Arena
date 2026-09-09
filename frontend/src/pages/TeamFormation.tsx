@@ -361,16 +361,33 @@ export default function TeamFormation() {
           {/* Enter Arena button if contest is running */}
           {contestState === 'RUNNING' && (
             <div className="mb-4">
-              <button
-                onClick={() => {
-                  toast.success('Entering Arena... Loading problem');
-                  socket?.emit('session:restore');
-                }}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <span>🚀</span>
-                <span>Enter Arena & Start Solving</span>
-              </button>
+              {team.members.length < 2 ? (
+                <div className="space-y-2">
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
+                    <p className="text-amber-400 text-xs font-semibold">
+                      ⚠️ Group Event Requirement: You must invite at least 1 more member to your team (minimum 2 members) before you can enter the contest.
+                    </p>
+                  </div>
+                  <button
+                    disabled
+                    className="w-full py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/40 font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <span>👥</span>
+                    <span>Add Members to Enter Arena ({team.members.length}/4 Members)</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    toast.success('Entering Arena... Loading problem');
+                    socket?.emit('session:restore');
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <span>🚀</span>
+                  <span>Enter Arena & Start Solving ({team.members.length}/4 Members Ready)</span>
+                </button>
+              )}
             </div>
           )}
 

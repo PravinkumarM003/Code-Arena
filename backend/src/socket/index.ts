@@ -118,12 +118,19 @@ export function setupSocketHandlers(io: SocketServer): void {
 
     // ── Send current state to newly connected client ──────────────────────
 
-    const [state, times] = await Promise.all([getContestState(), getContestTimes()]);
+    const [state, times, mode, eventId] = await Promise.all([
+      getContestState(),
+      getContestTimes(),
+      getContestMode(),
+      getCurrentEventId(),
+    ]);
 
     socket.emit('contest:state', {
       state,
       endTime: times.endTime,
       remainingMs: times.remainingMs,
+      mode,
+      eventId,
     });
 
     // Always restore session to initialize client state (even in WAITING)
@@ -299,9 +306,19 @@ async function handleSessionRestore(
       let canParticipate = true;
       if (mode === 'GROUP') {
         const teamMember = await prisma.teamMember.findFirst({
-          where: { userId: dbUserId, status: 'ACCEPTED' }
+          where: { userId: dbUserId, status: 'ACCEPTED' },
+          include: {
+            team: {
+              include: {
+                members: { where: { status: 'ACCEPTED' } },
+              },
+            },
+          },
         });
-        if (!teamMember) canParticipate = false;
+        // In Group mode, participant must be in an accepted team with at least 2 members
+        if (!teamMember || !teamMember.team || teamMember.team.members.length < 2) {
+          canParticipate = false;
+        }
       }
 
       if (canParticipate) {
