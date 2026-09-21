@@ -276,6 +276,7 @@ model TeamMember {
   userId   String
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   status   String   @default("ACCEPTED") // ACCEPTED (captain auto-joins as accepted)
+  isReady  Boolean  @default(false)
   joinedAt DateTime @default(now())
 
   @@unique([teamId, userId])

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Search, UserPlus, Check, X, Crown, Shield, Loader2, UserMinus, Trash2, Mail } from 'lucide-react';
+import { Users, Search, UserPlus, Check, X, Crown, Shield, Loader2, UserMinus, Trash2, Mail, Clock } from 'lucide-react';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useContest } from '../contexts/ContestContext';
@@ -10,6 +10,7 @@ interface TeamMember {
   id: string;
   userId: string;
   status: string;
+  isReady: boolean;
   user: { id: string; name: string; email: string };
 }
 
@@ -49,6 +50,7 @@ export default function TeamFormation() {
   const [searching, setSearching] = useState(false);
   const [invitingId, setInvitingId] = useState<string | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [togglingReady, setTogglingReady] = useState(false);
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -236,6 +238,23 @@ export default function TeamFormation() {
     });
   };
 
+  const handleToggleReady = async () => {
+    if (!team || !currentUserDbId) return;
+    const myMembership = team.members.find(m => m.user.id === currentUserDbId);
+    if (!myMembership) return;
+
+    setTogglingReady(true);
+    try {
+      const res = await api.post('/teams/ready', { isReady: !myMembership.isReady });
+      // The socket event will trigger fetchMyTeam() which will update the UI
+      toast.success(res.data.isReady ? "You are ready!" : "You are no longer ready.");
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Failed to update ready status');
+    } finally {
+      setTogglingReady(false);
+    }
+  };
+
   // Compare DB IDs — captainId is a cuid, user.uid is a Firebase UID (different!)
   const isCaptain = !!team && !!currentUserDbId && team.captainId === currentUserDbId;
 
@@ -354,42 +373,78 @@ export default function TeamFormation() {
                     <Crown className="w-3 h-3" /> Captain
                   </span>
                 )}
+                {member.isReady ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold">
+                    <Check className="w-3 h-3" /> Ready
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-white/40 text-xs font-semibold">
+                    <Clock className="w-3 h-3" /> Waiting
+                  </span>
+                )}
               </div>
             ))}
           </div>
 
-          {/* Enter Arena button if contest is running */}
-          {contestState === 'RUNNING' && (
-            <div className="mb-4">
-              {team.members.length < 2 ? (
-                <div className="space-y-2">
-                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
-                    <p className="text-amber-400 text-xs font-semibold">
-                      ⚠️ Group Event Requirement: You must invite at least 1 more member to your team (minimum 2 members) before you can enter the contest.
-                    </p>
+          {/* Enter Arena / Ready button */}
+          <div className="mb-4">
+            {team.members.length < 2 ? (
+              <div className="space-y-2">
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-center">
+                  <p className="text-amber-400 text-xs font-semibold">
+                    ⚠️ You must invite at least 1 more member to your team before getting ready.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                  <div className="text-sm font-medium text-white/70">
+                    Are you ready for the contest?
                   </div>
                   <button
-                    disabled
-                    className="w-full py-3 px-4 rounded-xl bg-white/5 border border-white/10 text-white/40 font-bold text-sm cursor-not-allowed flex items-center justify-center gap-2"
+                    onClick={handleToggleReady}
+                    disabled={togglingReady}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                      team.members.find(m => m.user.id === currentUserDbId)?.isReady
+                        ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/30'
+                        : 'bg-brand-500/20 border border-brand-500/30 text-brand-400 hover:bg-brand-500/30'
+                    }`}
                   >
-                    <span>👥</span>
-                    <span>Add Members to Enter Arena ({team.members.length}/4 Members)</span>
+                    {togglingReady ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                      team.members.find(m => m.user.id === currentUserDbId)?.isReady ? (
+                        <><Check className="w-4 h-4" /> Ready!</>
+                      ) : (
+                        'Click when Ready'
+                      )
+                    )}
                   </button>
                 </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    toast.success('Entering Arena... Loading problem');
-                    socket?.emit('session:restore');
-                  }}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-500 active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <span>🚀</span>
-                  <span>Enter Arena & Start Solving ({team.members.length}/4 Members Ready)</span>
-                </button>
-              )}
-            </div>
-          )}
+                
+                {contestState === 'RUNNING' && (
+                  <button
+                    onClick={() => {
+                      if (!team.members.every(m => m.isReady)) {
+                        toast.error('All members must be marked as ready first!');
+                        return;
+                      }
+                      toast.success('Entering Arena... Loading problem');
+                      socket?.emit('session:restore');
+                    }}
+                    disabled={!team.members.every(m => m.isReady)}
+                    className={`w-full py-3 px-4 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${
+                      team.members.every(m => m.isReady)
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-lg shadow-emerald-500/25 hover:from-emerald-400 hover:to-teal-500 cursor-pointer'
+                        : 'bg-white/5 border border-white/10 text-white/30 cursor-not-allowed'
+                    }`}
+                  >
+                    <span>🚀</span>
+                    <span>Enter Arena ({team.members.filter(m => m.isReady).length}/{team.members.length} Members Ready)</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Team Actions — shown based on whether the current user is the captain */}
           <div className="flex gap-3">

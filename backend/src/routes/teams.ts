@@ -598,4 +598,64 @@ router.delete('/:id', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+// ─── Ready Status ─────────────────────────────────────────────────────────────
+
+const readySchema = z.object({
+  isReady: z.boolean(),
+});
+
+/**
+ * POST /teams/ready
+ * Toggle ready status for the contest.
+ */
+router.post('/ready', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { isReady } = readySchema.parse(req.body);
+    const userId = req.user!.dbUserId;
+    const currentEventId = await getCurrentEventId();
+
+    const membership = await prisma.teamMember.findFirst({
+      where: {
+        userId,
+        status: 'ACCEPTED',
+        team: currentEventId
+          ? { eventId: currentEventId }
+          : { OR: [{ eventId: null }, { event: { state: { not: 'ENDED' } } }] },
+      },
+    });
+
+    if (!membership) {
+      res.status(400).json({ error: 'You are not in an active team' });
+      return;
+    }
+
+    await prisma.teamMember.update({
+      where: { id: membership.id },
+      data: { isReady },
+    });
+
+    // Notify all team members
+    const io = (req as any).io;
+    if (io) {
+      const members = await prisma.teamMember.findMany({
+        where: { teamId: membership.teamId, status: 'ACCEPTED' },
+        include: { user: { select: { uid: true } } },
+      });
+      for (const m of members) {
+        io.to(`user:${m.user.uid}`).emit('team:update', { teamId: membership.teamId, timestamp: Date.now() });
+      }
+    }
+
+    logger.info('User updated ready status', { userId, isReady, teamId: membership.teamId });
+    res.json({ success: true, isReady });
+  } catch (err: any) {
+    if (err.name === 'ZodError') {
+      res.status(400).json({ error: 'Invalid ready status' });
+      return;
+    }
+    logger.error('Failed to update ready status', { error: err });
+    res.status(500).json({ error: 'Failed to update ready status' });
+  }
+});
+
 export default router;

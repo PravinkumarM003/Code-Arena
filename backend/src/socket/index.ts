@@ -328,8 +328,14 @@ async function handleSessionRestore(
           },
         });
         // In Group mode, participant must be in an accepted team with at least 2 members
+        // AND all members must be marked as ready
         if (!teamMember || !teamMember.team || teamMember.team.members.length < 2) {
           canParticipate = false;
+        } else {
+          const allReady = teamMember.team.members.every(m => m.isReady);
+          if (!allReady) {
+            canParticipate = false;
+          }
         }
       }
 

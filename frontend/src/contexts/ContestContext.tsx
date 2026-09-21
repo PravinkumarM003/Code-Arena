@@ -330,6 +330,7 @@ export function ContestProvider({ children }: { children: React.ReactNode }) {
         sock.on('team:disbanded', (data: { teamName: string }) => {
           if (!mounted) return;
           toast.error(`Team "${data.teamName}" was disbanded`);
+          setTeamRefreshTick((prev) => prev + 1);
         });
 
         sock.on('team:update', () => {
