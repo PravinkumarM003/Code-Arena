@@ -14,6 +14,5 @@ export const auth = getAuth(app);
 // Google provider restricted to college domain
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
-  hd: import.meta.env.VITE_COLLEGE_EMAIL_DOMAIN || 'bitsathy.ac.in',
   prompt: 'select_account',
 });
