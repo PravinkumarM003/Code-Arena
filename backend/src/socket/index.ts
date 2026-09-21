@@ -43,7 +43,7 @@ async function authenticateSocket(socket: Socket): Promise<{
     const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
     const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
-    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) return null;
+
 
     const user = await prisma.user.findUnique({ where: { uid: decoded.uid } });
     if (!user) return null;

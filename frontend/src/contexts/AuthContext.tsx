@@ -33,16 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Client-side domain check (server re-checks independently)
         const email = firebaseUser.email || '';
         const isAdmin = email.toLowerCase() === ADMIN_EMAIL;
-        if (!isAdmin && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
-          await signOut(auth);
-          toast.error(`Only @${COLLEGE_DOMAIN} accounts are allowed.`);
-          setUser(null);
-        } else {
-          // Check for admin custom claim
-          const tokenResult = await firebaseUser.getIdTokenResult();
-          setIsAdmin(tokenResult.claims.admin === true || isAdmin);
-          setUser(firebaseUser);
-        }
+        // Check for admin custom claim
+        const tokenResult = await firebaseUser.getIdTokenResult();
+        setIsAdmin(tokenResult.claims.admin === true || isAdmin);
+        setUser(firebaseUser);
       } else {
         setUser(null);
         setIsAdmin(false);
@@ -59,11 +53,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const email = result.user.email || '';
       const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
-      if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
-        await signOut(auth);
-        toast.error(`Only @${COLLEGE_DOMAIN} accounts are allowed.`);
-        return;
-      }
+
 
       // Register/update user in TiDB so Socket.IO can authenticate them
       const token = await result.user.getIdToken();

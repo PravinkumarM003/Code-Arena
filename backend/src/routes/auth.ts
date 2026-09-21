@@ -29,10 +29,7 @@ router.post('/login', async (req: Request, res: Response) => {
     const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
     const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
-    // Block non-college emails UNLESS it's the designated admin email
-    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
-      return res.status(403).json({ error: `Only @${COLLEGE_DOMAIN} accounts are allowed.` });
-    }
+
 
     // Derive display name and roll number from email/token
     const name = decoded.name || email.split('@')[0];

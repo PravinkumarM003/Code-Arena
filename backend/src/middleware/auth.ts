@@ -49,12 +49,7 @@ export async function authMiddleware(
     const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').toLowerCase();
     const isAdminEmail = email.toLowerCase() === ADMIN_EMAIL;
 
-    // Allow admin email to bypass domain restriction (e.g. personal Gmail for admin)
-    if (!isAdminEmail && !email.endsWith(`@${COLLEGE_DOMAIN}`)) {
-      logger.warn('Auth rejected: invalid email domain', { email });
-      res.status(403).json({ error: `Only @${COLLEGE_DOMAIN} accounts are allowed` });
-      return;
-    }
+
 
     // 3. Single active session enforcement: check session token in Redis
     // Admins bypass single-session restriction so they can manage contest across multiple tabs/devices

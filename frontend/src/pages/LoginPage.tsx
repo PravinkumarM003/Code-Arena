@@ -72,9 +72,7 @@ export default function LoginPage() {
             )}
           </button>
 
-          <p className="text-center text-white/30 text-xs mt-4">
-            Only @{import.meta.env.VITE_COLLEGE_EMAIL_DOMAIN || 'college.edu'} accounts
-          </p>
+
         </div>
 
         {/* Monitoring notice */}
